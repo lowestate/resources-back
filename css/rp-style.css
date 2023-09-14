@@ -1,0 +1,42 @@
+.resource-body {
+    font-family: Georgia, serif;
+    background-color: #f5f5f5;
+    text-align: left;
+    padding: 10px;
+}
+.resource-container {
+    background-color: #fff;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+    margin: 20px;
+    display: inline-block;
+    text-align: left;
+}
+.resource-image {
+    max-width: 100%;
+    height: auto;
+    width: 450px;
+    height: 300px;
+}
+.resource-title {
+    font-size: 40px;
+    color: #333;
+}
+.resource-info {
+    font-size: 22px;
+    color: #666;
+}
+.home-link {
+    text-decoration: none;
+    margin: 50px 20px;
+}
+.home-button {
+    background-color: #5c3991;
+    color: #fff;
+    font-size: 28px;
+    padding: 20px 30px;
+    border-radius: 5px;
+    font-weight: bold;
+    margin: 50px 30px;
+}

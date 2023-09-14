@@ -1,0 +1,68 @@
+.container {
+    text-align: center;
+
+}
+
+.resource-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr); /* Распределение по 2 элемента в ряд */
+    grid-gap: 20px; /* Расстояние между элементами */
+    margin-top: 20px; /* Отступ сверху */
+}
+/* Убираем отступы у элементов */
+.resource-link {
+    text-decoration: none;
+    margin: 0; /* Убираем стандартные отступы */
+}
+.search-box {
+    display: inline-grid;
+    background-color: #eeeeee;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    padding: 30px;
+    margin: 10px;
+}
+.search-label {
+    font-size: 28px;
+    margin: 10px;
+    text-align: left;
+}
+.search-input {
+    font-size: 28px;
+    margin: 10px 10px;
+    padding: 20px;
+}
+.resources-heading {
+    font-family: Georgia, serif;
+    font-size: 40px;
+    color: #333;
+    margin-bottom: 30px;
+}
+.resource-link {
+    text-decoration: none;
+    margin: 30px 10px;
+}
+.resource-name {
+    font-family: Georgia, serif;
+    background-color: #164778;
+    color: #fff;
+    font-size: 28px;
+    padding: 20px 30px;
+    border-radius: 5px;
+    font-weight: bold;
+    margin: 0 10px;
+}
+.home-link {
+    text-decoration: none;
+    margin: 50px 20px;
+}
+.home-button {
+    font-family: Georgia, serif;
+    background-color: #5c3991;
+    color: #fff;
+    font-size: 28px;
+    padding: 20px 30px;
+    border-radius: 5px;
+    font-weight: bold;
+    margin: 50px 30px;
+}
