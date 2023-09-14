@@ -114,7 +114,7 @@ func loadPage(c *gin.Context) {
 				"Text":     materials[i].Text,
 				"Period":   materials[i].Period,
 				"Place":    materials[i].Place,
-				"ImageURL": materials[i].ImageURL, // URL-адрес изображения для Железа
+				"ImageURL": materials[i].ImageURL,
 			})
 			return
 		}
