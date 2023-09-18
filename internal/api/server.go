@@ -3,6 +3,7 @@ package api
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -53,56 +54,22 @@ func StartServer() {
 }
 
 func loadHome(c *gin.Context) {
-	queryParam, ok := c.GetQuery("search")
+	query := c.DefaultQuery("search", "")
 
-	if queryParam == "титан" && ok {
-		c.HTML(http.StatusOK, "hp_resources.html", gin.H{
-			"title": "Ресурсы:",
-			"res1":  "Титан",
-			"btn":   1,
-		})
-	} else if queryParam == "алюминий" && ok {
-		c.HTML(http.StatusOK, "hp_resources.html", gin.H{
-			"title": "Ресурсы:",
-			"res2":  "Алюминий",
-			"btn":   1,
-		})
-	} else if queryParam == "железо" && ok {
-		c.HTML(http.StatusOK, "hp_resources.html", gin.H{
-			"title": "Ресурсы:",
-			"res3":  "Железо",
-			"btn":   1,
-		})
-	} else if queryParam == "реголит" && ok {
-		c.HTML(http.StatusOK, "hp_resources.html", gin.H{
-			"title": "Ресурсы:",
-			"res4":  "Реголит",
-			"btn":   1,
-		})
-	} else if queryParam == "торий" && ok {
-		c.HTML(http.StatusOK, "hp_resources.html", gin.H{
-			"title": "Ресурсы:",
-			"res5":  "Торий",
-			"btn":   1,
-		})
-	} else if queryParam == "уран" && ok {
-		c.HTML(http.StatusOK, "hp_resources.html", gin.H{
-			"title": "Ресурсы:",
-			"res6":  "Уран",
-			"btn":   1,
-		})
+	var filteredResources []Resource
+	if query != "" {
+		for i := 0; i < len(materials); i++ {
+			if strings.Contains(strings.ToLower(materials[i].Material), strings.ToLower(query)) {
+				filteredResources = append(filteredResources, materials[i])
+			}
+		}
 	} else {
-		c.HTML(http.StatusOK, "hp_resources.html", gin.H{
-			"title": "Ресурсы:",
-			"res1":  "Титан",
-			"res2":  "Алюминий",
-			"res3":  "Железо",
-			"res4":  "Реголит",
-			"res5":  "Торий",
-			"res6":  "Уран",
-			"btn":   0,
-		})
+		filteredResources = materials
 	}
+
+	c.HTML(http.StatusOK, "hp_resources.html", gin.H{
+		"materials": filteredResources,
+	})
 }
 
 func loadPage(c *gin.Context) {

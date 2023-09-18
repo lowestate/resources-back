@@ -1,65 +1,31 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>{{.title}}</title>
+    <title>Доступные материалы</title>
     <link rel="stylesheet" type="text/css" href="../css/hp-style.css">
 </head>
 <body>
 
 <div class="container">
+    <h1 class="page-title">Доступные материалы</h1>
     <div class="search-box">
-        <label class="search-label">Поиск по материалам:</label>
-
         <form action="" method="get">
-            <input type="text" name="search" placeholder="Введите материал..." class="search-input"/>
+            <input type="text" name="search" placeholder="Поиск..." class="search-input"/>
+            <button type="submit" class="search-button">Искать</button>
         </form>
-
-        <h1 class="resources-heading">Доступные материалы:</h1>
-
-        <div class="resource-grid">
-            {{ if eq .res1 "Титан" }}
-            <a href="/home/titanium" class="resource-link">
-                <span class="resource-name">{{.res1}}</span>
-            </a>
-            {{ end }}
-
-            {{ if eq .res2 "Алюминий" }}
-            <a href="/home/aluminium" class="resource-link">
-                <span class="resource-name">{{.res2}}</span>
-            </a>
-            {{ end }}
-
-            {{ if eq .res3 "Железо" }}
-            <a href="/home/ferrum" class="resource-link">
-                <span class="resource-name">{{.res3}}</span>
-            </a>
-            {{ end }}
-
-            {{ if eq .res4 "Реголит" }}
-            <a href="/home/regolith" class="resource-link">
-                <span class="resource-name">{{.res4}}</span>
-            </a>
-            {{ end }}
-
-            {{ if eq .res5 "Торий" }}
-            <a href="/home/thorium" class="resource-link">
-                <span class="resource-name">{{.res5}}</span>
-            </a>
-            {{ end }}
-
-            {{ if eq .res6 "Уран" }}
-            <a href="/home/uranium" class="resource-link">
-                <span class="resource-name">{{.res6}}</span>
-            </a>
-            {{ end }}
+    </div>
+    <div class="content">
+        <div class="resources">
+            <div class="resource-grid">
+                {{ range .materials }}
+                <div class="resource-card">
+                    <img src="{{ .ImageURL }}" alt="картинка" class="resource-image">
+                    <h5 class="resource-title">{{ .Material }}</h5>
+                    <a href="home/{{ .Title }}" class="resource-link">Подробнее</a>
+                </div>
+                {{ end }}
+            </div>
         </div>
-
-        {{ if eq .btn 1 }}
-        <a href="/home" class="home-link">
-            <span class="home-button">На главную страницу</span>
-        </a>
-        {{ end }}
-
     </div>
 </div>
 </body>
