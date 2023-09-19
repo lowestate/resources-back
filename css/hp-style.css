@@ -1,68 +1,128 @@
-.container {
-    text-align: center;
+    body {
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
+        background-color: #f2f2f2; /* Светло-серый цвет фона */
+    }
 
-}
+    .resource-body {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh; /* Чтобы объект был по центру по вертикали */
+        background-color: #f2f2f2;
+    }
 
-.resource-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr); /* Распределение по 2 элемента в ряд */
-    grid-gap: 20px; /* Расстояние между элементами */
-    margin-top: 20px; /* Отступ сверху */
-}
-/* Убираем отступы у элементов */
-.resource-link {
-    text-decoration: none;
-    margin: 0; /* Убираем стандартные отступы */
-}
-.search-box {
-    display: inline-grid;
-    background-color: #eeeeee;
-    border-radius: 5px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    padding: 30px;
-    margin: 10px;
-}
-.search-label {
-    font-size: 28px;
-    margin: 10px;
-    text-align: left;
-}
-.search-input {
-    font-size: 28px;
-    margin: 10px 10px;
-    padding: 20px;
-}
-.resources-heading {
-    font-family: Georgia, serif;
-    font-size: 40px;
-    color: #333;
-    margin-bottom: 30px;
-}
-.resource-link {
-    text-decoration: none;
-    margin: 30px 10px;
-}
-.resource-name {
-    font-family: Georgia, serif;
-    background-color: #164778;
-    color: #fff;
-    font-size: 28px;
-    padding: 20px 30px;
-    border-radius: 5px;
-    font-weight: bold;
-    margin: 0 10px;
-}
-.home-link {
-    text-decoration: none;
-    margin: 50px 20px;
-}
-.home-button {
-    font-family: Georgia, serif;
-    background-color: #5c3991;
-    color: #fff;
-    font-size: 28px;
-    padding: 20px 30px;
-    border-radius: 5px;
-    font-weight: bold;
-    margin: 50px 30px;
-}
+    .resource-container {
+        text-align: center;
+    }
+
+    .resource-details {
+        background-color: #ffffff;
+        border-radius: 5px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        padding: 20px;
+    }
+
+    .page-title {
+        font-size: 36px;
+        text-align: center;
+        margin-top: 10px;
+        color: #1a237e; /* Темно-синий цвет заголовка */
+    }
+
+    .container {
+        text-align: center;
+    }
+
+    .search-box {
+        background-color: #ffffff; /* Белый фон поиска */
+        border-radius: 5px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        padding: 10px;
+        width: 300px;
+        height: 30px;
+        margin: 0 auto;
+    }
+
+    .search-input {
+        font-size: 18px;
+        padding: 5px;
+        width: 70%; /* Уменьшена ширина поля ввода */
+        border: none; /* Убрана граница поля ввода */
+        border-radius: 5px;
+    }
+
+    .search-button {
+        background-color: #1a237e; /* Темно-синий цвет кнопки */
+        color: #fff;
+        border: none;
+        border-radius: 5px;
+        padding: 10px;
+        cursor: pointer;
+    }
+
+
+    .content {
+        display: flex;
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: flex-start;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .resources {
+        flex-grow: 1;
+    }
+
+    .resource-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        grid-gap: 10px;
+    }
+
+    .resource-card {
+        background-color: #f5f5f5; /* Чуть темнее цвета фона */
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        padding: 20px;
+        text-align: center;
+    }
+
+    .resource-title {
+        font-size: 20px;
+        color: #333;
+        margin: 10px 0;
+    }
+
+    .resource-link {
+        text-decoration: none;
+        font-size: 16px;
+        background-color: #1a237e; /* Темно-синий цвет кнопки */
+        color: #fff;
+        padding: 5px 16px;
+        border-radius: 5px;
+        display: inline-block;
+
+    }
+
+    .resource-image {
+        max-width: 100%;
+        height: auto;
+        max-height: 150px;
+    }
+
+    .home-link {
+        text-decoration: none;
+        margin-top: 20px;
+    }
+
+    .home-button {
+        font-size: 20px;
+        background-color: #1a237e; /* Темно-синий цвет кнопки */
+        color: #fff;
+        padding: 10px 20px;
+        border-radius: 5px;
+    }
