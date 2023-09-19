@@ -27,7 +27,7 @@
     .page-title {
         font-size: 36px;
         text-align: center;
-        margin-top: 20px;
+        margin-top: 10px;
         color: #1a237e; /* Темно-синий цвет заголовка */
     }
 
@@ -41,14 +41,13 @@
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         padding: 10px;
         width: 300px;
+        height: 30px;
         margin: 0 auto;
-        margin-bottom: 20px; /* Добавлен отступ снизу */
     }
 
     .search-input {
         font-size: 18px;
-
-
+        padding: 5px;
         width: 70%; /* Уменьшена ширина поля ввода */
         border: none; /* Убрана граница поля ввода */
         border-radius: 5px;
@@ -71,7 +70,7 @@
         align-items: flex-start;
         max-width: 1200px;
         margin: 0 auto;
-        padding: 10px;
+        padding: 20px;
     }
 
     .resources {
@@ -81,21 +80,21 @@
     .resource-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
-        grid-gap: 20px;
+        grid-gap: 10px;
     }
 
     .resource-card {
         background-color: #f5f5f5; /* Чуть темнее цвета фона */
         border: 1px solid #ddd;
         border-radius: 5px;
-        padding: 10px;
+        padding: 20px;
         text-align: center;
     }
 
     .resource-title {
         font-size: 20px;
         color: #333;
-        margin: 5px 0;
+        margin: 10px 0;
     }
 
     .resource-link {
@@ -103,10 +102,10 @@
         font-size: 16px;
         background-color: #1a237e; /* Темно-синий цвет кнопки */
         color: #fff;
-        padding: 8px 16px;
+        padding: 5px 16px;
         border-radius: 5px;
         display: inline-block;
-        margin-top: 10px;
+
     }
 
     .resource-image {
