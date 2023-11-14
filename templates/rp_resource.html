@@ -7,15 +7,19 @@
 <body class="resource-body">
 <div class="resource-container">
     <div class="resource-details">
-        <img src="data:image/jpg;base64, {{ .Image }}" alt="{{.ResourceName}}" class="resource-image">
+        <img src="{{ .Image }}" alt="{{.ResourceName}}" class="resource-image">
         <h1 class="resource-title">{{.ResourceName}}</h1>
         {{ if eq .IsAvailable true }}
         <p class="resource-info">Материал еще есть</p>
         {{ else }}
         <p class="resource-info">Материал закончился</p>
         {{ end }}
-        <p class="resource-info">Доступно: {{.AmountAvailable}} кг</p>
         <p class="resource-info">Место добычи: {{.Place}}</p>
+
+        {{ range $index, $month := .Months }}
+            <p class="resource-info">За {{ index $.Months $index }} добыто {{ index $.MonthlyProds $index }}</p>
+        {{ end }}
+
         <form method="POST" action="delete_resource/{{ .ResourceName }}" name="delete_resource">
             <input type="hidden" name="card_title" id="card_title" value="{{ .ResourceName }}">
             {{ if eq .IsAvailable true }}

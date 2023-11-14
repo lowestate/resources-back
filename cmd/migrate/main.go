@@ -17,7 +17,6 @@ func main() {
 
 	// Migrate the schema
 	err = db.AutoMigrate(
-		&ds.Statuses{},
 		&ds.Users{},
 		&ds.Resources{},
 		&ds.ExtractionReports{},
