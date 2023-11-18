@@ -1,0 +1,172 @@
+
+definitions:
+  app.pingResp:
+    properties:
+      status:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  description: API Server for Resource Extraction WebApp
+  title: Resource Extraction
+  version: "1.0"
+paths:
+  /home:
+    get:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/app.pingResp'
+      summary: home page
+      tags:
+        - resources
+  /home/{title}:
+    get:
+      produces:
+        - application/json
+      parameters:
+        - name: title
+          in: path
+          description: Title of the resource
+          required: true
+          type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/app.pingResp'
+      summary: resource page
+      tags:
+        - resources
+  /home/add_resource:
+    post:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/app.pingResp'
+      summary: add new resource
+      tags:
+        - resources
+  /home/edit_resource:
+    put:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/app.pingResp'
+      summary: edit resource
+      tags:
+        - resources
+  /home/{title}/add_monthly_prod:
+    post:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/app.pingResp'
+      summary: add monthly production
+      tags:
+        - resources
+  /home/{title}/add_report:
+    post:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/app.pingResp'
+      summary: add report
+      tags:
+        - reports
+  /home/get_report/{title}:
+    get:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/app.pingResp'
+      summary: get report
+      tags:
+        - reports
+  /home/get_report/{title}/change_status:
+    put:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/app.pingResp'
+      summary: change report status
+      tags:
+        - reports
+  /home/change_res_status/{title}:
+    post:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/app.pingResp'
+      summary: change resource availability
+      tags:
+        - resources
+  /home/delete_report/{title}:
+    post:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/app.pingResp'
+      summary: delete report
+      tags:
+        - reports
+  /sign_up:
+    post:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/app.pingResp'
+      summary: sign up new user
+      tags:
+        - auth
+  /login:
+    post:
+      produces:
+        - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/app.pingResp'
+      summary: login to existing user and get jwt
+      tags:
+        - auth
+schemes:
+- https
+- http
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

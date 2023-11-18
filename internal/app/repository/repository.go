@@ -2,10 +2,16 @@ package repository
 
 import (
 	"ResourceExtraction/internal/app/ds"
+	mClient "ResourceExtraction/internal/app/minio"
+	"context"
+	"fmt"
+	"github.com/google/uuid"
+	"github.com/minio/minio-go/v7"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"log"
 	"math/rand"
+	"os"
 	"strings"
 	"time"
 	"unicode"
@@ -50,18 +56,19 @@ func (r *Repository) GetResourceByID(id int) (*ds.Resources, error) {
 }
 
 func (r *Repository) SearchResources(resName string) ([]ds.Resources, error) {
-	allresources, _ := r.GetAllResources()
-
+	allResources, _ := r.GetAllResources()
+	var uniqueResources []ds.Resources
 	resName = strings.ToLower(resName)
 	resName = firstLetterToHigher(resName)
 	resName = "%" + resName + "%"
 
-	err := r.db.Where("resource_name LIKE ?", resName).Find(&allresources).Error
+	err := r.db.Where("resource_name LIKE ?", resName).Find(&allResources).Error
 	if err != nil {
 		return nil, err
 	}
 
-	return allresources, nil
+	uniqueResources = append(uniqueResources, allResources[0])
+	return uniqueResources, nil
 }
 
 func (r *Repository) DeleteResource(resName string) error {
@@ -83,7 +90,11 @@ func (r *Repository) ChangeAvailability(resName string) error {
 	return err
 }
 
-func (r *Repository) AddResource(resName string, place string) error {
+func (r *Repository) AddResource(resName string, place, imagePath string) error {
+	image_placeholder := "http://127.0.0.1:9000/pc-bucket/placeholder.jpg"
+	if imagePath == "" {
+		imagePath = image_placeholder
+	}
 	return r.db.Create(&ds.Resources{
 		uint(len([]ds.Resources{})),
 		resName,
@@ -91,7 +102,7 @@ func (r *Repository) AddResource(resName string, place string) error {
 		"",
 		0,
 		place,
-		""}).Error
+		imagePath}).Error
 }
 
 func (r *Repository) GetAllResources() ([]ds.Resources, error) {
@@ -104,6 +115,27 @@ func (r *Repository) GetAllResources() ([]ds.Resources, error) {
 	}
 
 	return resources, nil
+}
+
+// получение уникальных ресурсов для главной страницы
+func (r *Repository) UniqueResources(allRes []ds.Resources) []ds.Resources {
+	var newResources = []ds.Resources{}
+	fmt.Println("before: ", len(allRes))
+
+	for i := range allRes {
+		var t = true
+		for j := range newResources {
+			if allRes[i].ResourceName == newResources[j].ResourceName {
+				t = false
+			}
+		}
+		if t {
+			newResources = append(newResources, allRes[i])
+		}
+	}
+
+	fmt.Println("after: ", len(newResources))
+	return newResources
 }
 
 func (r *Repository) FilteredResources(resources []ds.Resources) []ds.Resources {
@@ -125,6 +157,16 @@ func (r *Repository) GetResourceByName(name string) (*ds.Resources, error) {
 	}
 	log.Println("!!!:  ", resource.ResourceName)
 	return resource, nil
+}
+
+func (r *Repository) GetResourcesByName(name string) ([]ds.Resources, error) {
+	resources := []ds.Resources{}
+
+	err := r.db.Where("resource_name = ?", name).Find(&resources).Error
+	if err != nil {
+		return nil, err
+	}
+	return resources, nil
 }
 
 func (r *Repository) EditResourceName(resName, newName string) error {
@@ -154,11 +196,40 @@ func (r *Repository) AddMonthlyProd(resName, place, month string, monthlyProd fl
 		""}).Error
 }
 
+func (r *Repository) uploadImageToMinio(imagePath string) (string, error) {
+	// Получаем клиента Minio из настроек
+	minioClient := mClient.NewMinioClient()
+
+	// Загрузка изображения в Minio
+	file, err := os.Open(imagePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	// Генерация уникального имени объекта в Minio (например, используя UUID)
+	objectName := generateUniqueObjectName() + ".jpg"
+
+	_, err = minioClient.PutObject(context.Background(), "pc-bucket", objectName, file, -1, minio.PutObjectOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	// Возврат URL изображения в Minio
+	return fmt.Sprintf("http://%s/%s/%s", minioClient.EndpointURL().Host, "pc-bucket", objectName), nil
+}
+
+func generateUniqueObjectName() string {
+	// Ваш код для генерации уникального имени объекта, например, использование UUID
+	// Пример: можно использовать github.com/google/uuid
+	return uuid.New().String()
+}
+
 // ---------------------------------------------------------------------------
 // --------------------------------- REPORTS ---------------------------------
-func (r *Repository) GetCurrentRequest(client_refer int) (*ds.ExtractionReports, error) {
+func (r *Repository) GetCurrentReport(client_refer int) (*ds.ExtractionReports, error) {
 	request := &ds.ExtractionReports{}
-	err := r.db.Where("status = ?", "Opened").First(request, "client_ref = ?", client_refer).Error
+	err := r.db.Where("status = ?", "черновик").First(request, "client_ref = ?", client_refer).Error
 	//если реквеста нет => err = record not found
 	if err != nil {
 		//request = nil, err = not found
@@ -168,9 +239,9 @@ func (r *Repository) GetCurrentRequest(client_refer int) (*ds.ExtractionReports,
 	return request, nil
 }
 
-func (r *Repository) CreateTransferRequest(client_refer int, resource_name string) (*ds.ExtractionReports, error) {
+func (r *Repository) CreateNewReport(client_refer int, resource_name string) (*ds.ExtractionReports, error) {
 	//проверка есть ли открытая заявка у клиента
-	request, err := r.GetCurrentRequest(client_refer)
+	request, err := r.GetCurrentReport(client_refer)
 	if err != nil {
 		log.Println("NO OPENED REQUESTS => CREATING NEW ONE")
 
@@ -187,19 +258,16 @@ func (r *Repository) CreateTransferRequest(client_refer int, resource_name strin
 		client := ds.Users{ID: uint(client_refer)}
 		moder := ds.Users{ID: moder_refer}
 
-		resource, _ := r.GetResourceByName(resource_name)
-
 		NewTransferRequest := &ds.ExtractionReports{
 			ID:           uint(len([]ds.ExtractionReports{})),
 			ClientRef:    client_refer,
 			Client:       client,
 			ModeratorRef: int(moder_refer),
 			Moderator:    moder,
-			Status:       "Opened",
+			Status:       "черновик",
 			DateCreated:  time.Now(),
 			DateFormed:   nil,
 			DateFinished: nil,
-			Place:        resource.Place,
 		}
 		log.Println("!!! NEW RECORD ADDED")
 		return NewTransferRequest, r.db.Create(NewTransferRequest).Error
@@ -207,11 +275,12 @@ func (r *Repository) CreateTransferRequest(client_refer int, resource_name strin
 	return request, nil
 }
 
-func (r *Repository) AddTransferToOrbits(reportRef, resourceRef int) error {
-	resource := ds.Resources{ID: uint(reportRef)}
-	report := ds.ExtractionReports{ID: uint(resourceRef)}
+func (r *Repository) AddReport(resourceRef, reportRef int) error {
+	resource := ds.Resources{ID: uint(resourceRef)}
+	report := ds.ExtractionReports{ID: uint(reportRef)}
 
 	NewMtM := &ds.ManageReports{
+		ID:          uint(len([]ds.ManageReports{})),
 		ReportRef:   reportRef,
 		IdReport:    report,
 		ResourceRef: resourceRef,
@@ -238,8 +307,35 @@ func (r *Repository) EditStatus(id uint, status string) error {
 		"status", status).Error
 }
 
+func (r *Repository) DeleteReport(id uint) (error, error) {
+	return r.db.Delete(&ds.ManageReports{}, "report_ref = ?", id).Error,
+		r.db.Model(&ds.ExtractionReports{}).Where(
+			"id", id).Update(
+			"status", "удален").Error
+}
+
 //---------------------------------------------------------------------------
 //---------------------------------- USERS ----------------------------------
+
+func (r *Repository) Register(user *ds.UserUuid) error {
+	if user.UUID == uuid.Nil {
+		user.UUID = uuid.New()
+	}
+
+	return r.db.Create(user).Error
+}
+
+func (r *Repository) GetUserByLogin(login string) (*ds.UserUuid, error) {
+	user := &ds.UserUuid{}
+
+	err := r.db.First(user, "username = ?", login).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
 
 func (r *Repository) DeleteUser(username string) error {
 	return r.db.Delete(&ds.Users{}, "username = ?", username).Error
