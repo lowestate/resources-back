@@ -2,7 +2,8 @@ package main
 
 import (
 	"ResourceExtraction/internal/pkg/app"
-	"fmt"
+	"context"
+	"log"
 )
 
 // @title Resource Extraction
@@ -17,15 +18,23 @@ import (
 
 // @host localhost:8080
 // @schemes https http
-// @BasePath /home
+// @BasePath /
 
 // @securityDefinitions.apikey ApiKeyAuth
 // @in header
 // @name Authorization
 
 func main() {
-	fmt.Println("app started")
-	a := app.New()
+	log.Println("Application start!")
+
+	a, err := app.New(context.Background())
+	if err != nil {
+		log.Println(err)
+
+		return
+	}
+
 	a.StartServer()
-	fmt.Println("app terminated")
+
+	log.Println("Application terminated!")
 }

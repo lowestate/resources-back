@@ -1,166 +1,356 @@
-
+basePath: /
 definitions:
-  app.pingResp:
+  ds.AddMonthlyProd:
     properties:
-      status:
+      month:
+        type: string
+      monthlyProd:
+        type: number
+    type: object
+  ds.AddResRequestBody:
+    properties:
+      image:
+        type: string
+      place:
+        type: string
+      resourceName:
+        type: string
+    type: object
+  ds.ChangeStatusRequestBody:
+    properties:
+      new_status:
+        type: string
+      who:
+        type: string
+    type: object
+  ds.Resources:
+    properties:
+      id:
+        type: integer
+      image:
+        type: string
+      isAvailable:
+        type: boolean
+      month:
+        type: string
+      monthlyProduction:
+        type: number
+      place:
+        type: string
+      resourceName:
         type: string
     type: object
 host: localhost:8080
 info:
+  contact:
+    email: bitop@spatecon.ru
+    name: API Support
+    url: https://vk.com/bmstu_schedule
   description: API Server for Resource Extraction WebApp
+  license:
+    name: AS IS (NO WARRANTY)
   title: Resource Extraction
   version: "1.0"
 paths:
   /home:
     get:
+      consumes:
+      - application/json
+      description: Загружает главную страницу с ресурсами или выполняет поиск ресурсов
+        по названию.
+      parameters:
+      - description: Название ресурса для поиска
+        in: query
+        name: title
+        type: string
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/app.pingResp'
-      summary: home page
+            additionalProperties: true
+            type: object
+      summary: Загрузка главной страницы
       tags:
-        - resources
+      - Resources
   /home/{title}:
     get:
-      produces:
-        - application/json
+      consumes:
+      - application/json
+      description: Загружает страницу с определенным ресурсом и информацию о нем
       parameters:
-        - name: title
-          in: path
-          description: Title of the resource
-          required: true
-          type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/app.pingResp'
-      summary: resource page
-      tags:
-        - resources
-  /home/add_resource:
-    post:
+      - description: Название ресурса
+        in: path
+        name: title
+        required: true
+        type: string
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/app.pingResp'
-      summary: add new resource
+            additionalProperties: true
+            type: object
+      summary: Загрузка страницы ресурса
       tags:
-        - resources
-  /home/edit_resource:
-    put:
-      produces:
-        - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/app.pingResp'
-      summary: edit resource
-      tags:
-        - resources
+      - Resources
   /home/{title}/add_monthly_prod:
     post:
+      consumes:
+      - application/json
+      description: Если записей о добыче ресурса еще нет, то изменяет эту запись.
+        Если же информация о добыче за какие-то месяцы уже есть, то создает новую
+        запись
+      parameters:
+      - description: Месячная доыбча
+        in: body
+        name: resource
+        required: true
+        schema:
+          $ref: '#/definitions/ds.AddMonthlyProd'
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/app.pingResp'
-      summary: add monthly production
+            additionalProperties: true
+            type: object
+      summary: Добавление информации о месячной добычи
       tags:
-        - resources
+      - Resources
   /home/{title}/add_report:
     post:
+      consumes:
+      - application/json
+      description: Добавление отчета по добыче по какому-то ресурса (по месту, в котором
+        он добывается)
+      parameters:
+      - description: Название ресурса
+        in: path
+        name: title
+        required: true
+        type: string
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/app.pingResp'
-      summary: add report
+            additionalProperties: true
+            type: object
+      summary: Добавление отчета о добыче
       tags:
-        - reports
-  /home/get_report/{title}:
-    get:
-      produces:
-        - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/app.pingResp'
-      summary: get report
-      tags:
-        - reports
-  /home/get_report/{title}/change_status:
+      - Resources
+  /home/{title}/edit_resource:
     put:
+      consumes:
+      - application/json
+      description: Можно изменить название, статус и картинку
+      parameters:
+      - description: Ресурс
+        in: body
+        name: resource
+        required: true
+        schema:
+          $ref: '#/definitions/ds.Resources'
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/app.pingResp'
-      summary: change report status
+            additionalProperties: true
+            type: object
+      summary: Изменение данные о ресурсе
       tags:
-        - reports
-  /home/change_res_status/{title}:
+      - Resources
+  /home/add_resource:
     post:
+      consumes:
+      - application/json
+      description: Добавляет новый ресурс с соответсвующими параметрами
+      parameters:
+      - description: Ресурс
+        in: body
+        name: resource
+        required: true
+        schema:
+          $ref: '#/definitions/ds.AddResRequestBody'
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/app.pingResp'
-      summary: change resource availability
+            additionalProperties: true
+            type: object
+      summary: Добавление нового ресурса
       tags:
-        - resources
+      - Resources
   /home/delete_report/{title}:
     post:
+      consumes:
+      - application/json
+      description: Логическое удаление отчета из таблицы отчетов и физическое от таблицы
+        ММ
+      parameters:
+      - description: ID отчета
+        in: path
+        name: title
+        required: true
+        type: string
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/app.pingResp'
-      summary: delete report
+            additionalProperties: true
+            type: object
+      summary: Удаление отчета
       tags:
-        - reports
-  /sign_up:
+      - Reports
+  /home/delete_resource/{title}:
     post:
+      consumes:
+      - application/json
+      description: Логически удаляет ресурс (меняет статус)
+      parameters:
+      - description: Название ресурса
+        in: path
+        name: title
+        required: true
+        type: string
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/app.pingResp'
-      summary: sign up new user
+            additionalProperties: true
+            type: object
+      summary: Удаление ресурса
       tags:
-        - auth
+      - Resources
+  /home/get_report/{title}:
+    get:
+      consumes:
+      - application/json
+      description: Получение отчета по его айди
+      parameters:
+      - description: ID отчета
+        in: path
+        name: title
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Получение отчета по его айди
+      tags:
+      - Reports
+  /home/get_report/{title}/change_status:
+    put:
+      consumes:
+      - application/json
+      description: Изменение статуса у отчета с ограничениями
+      parameters:
+      - description: ID отчета
+        in: path
+        name: title
+        required: true
+        type: string
+      - description: Кто меняет / на какой статус
+        in: body
+        name: change
+        required: true
+        schema:
+          $ref: '#/definitions/ds.ChangeStatusRequestBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Изменить статус у отчета
+      tags:
+      - Reports
   /login:
-    post:
+    get:
+      consumes:
+      - application/json
+      description: Загружает страницу с определенным ресурсом и информацию о нем
+      parameters:
+      - description: Название ресурса
+        in: path
+        name: title
+        required: true
+        type: string
       produces:
-        - application/json
+      - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/app.pingResp'
-      summary: login to existing user and get jwt
+            additionalProperties: true
+            type: object
+      summary: Загрузка страницы ресурса
       tags:
-        - auth
+      - Auth
+  /logout:
+    get:
+      consumes:
+      - application/json
+      description: Загружает страницу с определенным ресурсом и информацию о нем
+      parameters:
+      - description: Название ресурса
+        in: path
+        name: title
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Загрузка страницы ресурса
+      tags:
+      - Auth
+  /ping:
+    get:
+      consumes:
+      - application/json
+      description: Загружает страницу с определенным ресурсом и информацию о нем
+      parameters:
+      - description: Название ресурса
+        in: path
+        name: title
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Загрузка страницы ресурса
+      tags:
+      - Auth
 schemes:
 - https
 - http

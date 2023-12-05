@@ -22,21 +22,444 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/ping/{name}": {
+        "/home": {
             "get": {
-                "description": "very very friendly response",
+                "description": "Загружает главную страницу с ресурсами или выполняет поиск ресурсов по названию.",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "Tests"
+                    "Resources"
                 ],
-                "summary": "Show hello text",
+                "summary": "Загрузка главной страницы",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Название ресурса для поиска",
+                        "name": "title",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/app.pingResp"
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/home/add_resource": {
+            "post": {
+                "description": "Добавляет новый ресурс с соответсвующими параметрами",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Добавление нового ресурса",
+                "parameters": [
+                    {
+                        "description": "Ресурс",
+                        "name": "resource",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/ds.AddResRequestBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/home/delete_report/{title}": {
+            "post": {
+                "description": "Логическое удаление отчета из таблицы отчетов и физическое от таблицы ММ",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Reports"
+                ],
+                "summary": "Удаление отчета",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID отчета",
+                        "name": "title",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/home/delete_resource/{title}": {
+            "post": {
+                "description": "Логически удаляет ресурс (меняет статус)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Удаление ресурса",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Название ресурса",
+                        "name": "title",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/home/get_report/{title}": {
+            "get": {
+                "description": "Получение отчета по его айди",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Reports"
+                ],
+                "summary": "Получение отчета по его айди",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID отчета",
+                        "name": "title",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/home/get_report/{title}/change_status": {
+            "put": {
+                "description": "Изменение статуса у отчета с ограничениями",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Reports"
+                ],
+                "summary": "Изменить статус у отчета",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID отчета",
+                        "name": "title",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Кто меняет / на какой статус",
+                        "name": "change",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/ds.ChangeStatusRequestBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/home/{title}": {
+            "get": {
+                "description": "Загружает страницу с определенным ресурсом и информацию о нем",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Загрузка страницы ресурса",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Название ресурса",
+                        "name": "title",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/home/{title}/add_monthly_prod": {
+            "post": {
+                "description": "Если записей о добыче ресурса еще нет, то изменяет эту запись. Если же информация о добыче за какие-то месяцы уже есть, то создает новую запись",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Добавление информации о месячной добычи",
+                "parameters": [
+                    {
+                        "description": "Месячная доыбча",
+                        "name": "resource",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/ds.AddMonthlyProd"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/home/{title}/add_report": {
+            "post": {
+                "description": "Добавление отчета по добыче по какому-то ресурса (по месту, в котором он добывается)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Добавление отчета о добыче",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Название ресурса",
+                        "name": "title",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/home/{title}/edit_resource": {
+            "put": {
+                "description": "Можно изменить название, статус и картинку",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Изменение данные о ресурсе",
+                "parameters": [
+                    {
+                        "description": "Ресурс",
+                        "name": "resource",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/ds.Resources"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/login": {
+            "get": {
+                "description": "Загружает страницу с определенным ресурсом и информацию о нем",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Загрузка страницы ресурса",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Название ресурса",
+                        "name": "title",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/logout": {
+            "get": {
+                "description": "Загружает страницу с определенным ресурсом и информацию о нем",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Загрузка страницы ресурса",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Название ресурса",
+                        "name": "title",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/ping": {
+            "get": {
+                "description": "Загружает страницу с определенным ресурсом и информацию о нем",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Загрузка страницы ресурса",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Название ресурса",
+                        "name": "title",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -44,10 +467,64 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "app.pingResp": {
+        "ds.AddMonthlyProd": {
             "type": "object",
             "properties": {
-                "status": {
+                "month": {
+                    "type": "string"
+                },
+                "monthlyProd": {
+                    "type": "number"
+                }
+            }
+        },
+        "ds.AddResRequestBody": {
+            "type": "object",
+            "properties": {
+                "image": {
+                    "type": "string"
+                },
+                "place": {
+                    "type": "string"
+                },
+                "resourceName": {
+                    "type": "string"
+                }
+            }
+        },
+        "ds.ChangeStatusRequestBody": {
+            "type": "object",
+            "properties": {
+                "new_status": {
+                    "type": "string"
+                },
+                "who": {
+                    "type": "string"
+                }
+            }
+        },
+        "ds.Resources": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "image": {
+                    "type": "string"
+                },
+                "isAvailable": {
+                    "type": "boolean"
+                },
+                "month": {
+                    "type": "string"
+                },
+                "monthlyProduction": {
+                    "type": "number"
+                },
+                "place": {
+                    "type": "string"
+                },
+                "resourceName": {
                     "type": "string"
                 }
             }
@@ -66,7 +543,7 @@ const docTemplate = `{
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
 	Host:             "localhost:8080",
-	BasePath:         "/home",
+	BasePath:         "/",
 	Schemes:          []string{"https", "http"},
 	Title:            "Resource Extraction",
 	Description:      "API Server for Resource Extraction WebApp",

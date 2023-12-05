@@ -1,10 +1,14 @@
 package app
 
 import (
+	"ResourceExtraction/docs"
+	"ResourceExtraction/internal/app/config"
 	"ResourceExtraction/internal/app/ds"
 	"ResourceExtraction/internal/app/dsn"
+	"ResourceExtraction/internal/app/redis"
 	"ResourceExtraction/internal/app/repository"
 	"ResourceExtraction/internal/app/role"
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -22,26 +26,43 @@ import (
 	"time"
 )
 
-// @title           Swagger Example API
-// @version         1.0
-// @description     This is a sample server celler server.
-// @termsOfService  http://swagger.io/terms/
+type Application struct {
+	repo   *repository.Repository
+	r      *gin.Engine
+	config *config.Config
+	redis  *redis.Client
+}
 
-// @contact.name   API Support
-// @contact.url    http://www.swagger.io/support
-// @contact.email  support@swagger.io
+func New(ctx context.Context) (*Application, error) {
+	cfg, err := config.NewConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-// @license.name  Apache 2.0
-// @license.url   http://www.apache.org/licenses/LICENSE-2.0.html
+	repo, err := repository.New(dsn.FromEnv())
+	if err != nil {
+		return nil, err
+	}
 
-// @host      localhost:8080
-// @BasePath  /home
+	redisClient, err := redis.New(ctx, cfg.Redis)
+	if err != nil {
+		return nil, err
+	}
 
-// @securityDefinitions.basic  BasicAuth
+	return &Application{
+		config: cfg,
+		repo:   repo,
+		redis:  redisClient,
+	}, nil
+}
 
-// @externalDocs.description  OpenAPI
-// @externalDocs.url          https://swagger.io/resources/open-api/
+// @title resources
+// @version 0.0-0
+// @description resource extraction
 
+// @host localhost:8080
+// @schemes http
+// @BasePath /
 func (a *Application) StartServer() {
 	log.Println("Server started")
 
@@ -50,308 +71,82 @@ func (a *Application) StartServer() {
 	a.r.LoadHTMLGlob("templates/*.html")
 	a.r.Static("/css", "./css")
 
+	docs.SwaggerInfo.BasePath = "/"
 	a.r.GET("swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	//a.r.POST("/sign_up", a.Register)
-	//a.r.POST("/login", a.Login)
+	a.r.POST("/sign_up", a.register)
+	a.r.POST("/login", a.login)
+	a.r.POST("/logout", a.logout)
 	// доступ имеет только user
 	//a.r.Use(a.WithAuthCheck(role.User)).GET("/ping", a.ping)
+	resourcesGroup := a.r.Group("/resources")
+	{
+		resourcesGroup.GET("", a.loadHome)
+		resourcesGroup.GET("/:title", a.loadPage)
+		resourcesGroup.POST("/change_res_status/:title", a.deleteResource)
 
-	a.r.GET("/home", a.loadHome)
-	a.r.GET("/home/:title", a.loadPage)
-	//a.r.Use(a.WithAuthCheck(role.User)).GET("/home/:title", a.loadPage)
-	a.r.GET("/home/new_resource", a.loadNewRes)
-	a.r.POST("/home/add_resource", a.addResource)
-	a.r.PUT("/home/edit_resource", a.editResource)
-	a.r.POST("/home/:title/add_monthly_prod", a.addMonthlyProd)
+		resourcesGroup.Use(a.WithAuthCheck(role.Admin))
+		{
+			resourcesGroup.POST("/add_resource", a.addResource)
+			resourcesGroup.PUT("/:title/edit_resource", a.editResource)
+			resourcesGroup.POST("/:title/add_monthly_prod", a.addMonthlyProd)
+			resourcesGroup.POST("/:title/add_report", a.addReport)
 
-	a.r.POST("/home/:title/add_report", a.addReport)
-	a.r.GET("/home/get_report/:title", a.getReportByID)
-	//a.r.Use(a.WithAuthCheck(role.Admin)).GET("/home/get_report/:title", a.getReportByID)
-	a.r.PUT("/home/get_report/:title/change_status", a.changeStatus)
-	a.r.POST("/home/change_res_status/:title", a.deleteResource)
-	a.r.POST("/home/delete_report/:title", a.deleteReport)
+		}
+	}
+
+	reportsGroup := a.r.Group("/reports")
+	{
+		reportsGroup.Use(a.WithAuthCheck(role.Admin))
+		{
+			reportsGroup.GET("", a.getAllReports)
+			reportsGroup.GET("/get_report/:title", a.getReportByID)
+			reportsGroup.PUT("/get_report/:title/change_status", a.changeStatus)
+			reportsGroup.POST("/delete_report/:title", a.deleteReport)
+		}
+	}
 
 	a.r.Run(":8080")
 
 	log.Println("Server is down")
 }
 
-type Application struct {
-	repo   repository.Repository
-	r      *gin.Engine
-	config struct {
-		JWT struct {
-			Token         string
-			SigningMethod jwt.SigningMethod
-			ExpiresIn     time.Duration
-		}
-	}
-}
-
-type registerReq struct {
-	Name string    `json:"username"` // лучше назвать то же самое что login
-	Pass string    `json:"password"`
-	Role role.Role `json:"role"`
-}
-
-type registerResp struct {
-	Ok bool `json:"ok"`
-}
-
-func (a *Application) Register(gCtx *gin.Context) {
-	req := &registerReq{}
-
-	err := json.NewDecoder(gCtx.Request.Body).Decode(req)
-	if err != nil {
-		gCtx.AbortWithError(http.StatusBadRequest, err)
-
-		return
-	}
-
-	if req.Pass == "" {
-		gCtx.AbortWithError(http.StatusBadRequest, fmt.Errorf("pass is empty"))
-
-		return
-	}
-
-	if req.Name == "" {
-		gCtx.AbortWithError(http.StatusBadRequest, fmt.Errorf("name is empty"))
-
-		return
-	}
-
-	if req.Name == "" {
-		gCtx.AbortWithError(http.StatusBadRequest, fmt.Errorf("no role chosen"))
-
-		return
-	}
-
-	err = a.repo.Register(&ds.UserUuid{
-		UUID:     uuid.New(),
-		Username: req.Name,
-		Role:     req.Role,
-		Password: generateHashString(req.Pass), // пароли делаем в хешированном виде и далее будем сравнивать хеши, чтобы их не угнали с базой вместе
-	})
-	log.Println("new user registered")
-
-	if err != nil {
-		gCtx.AbortWithError(http.StatusInternalServerError, err)
-
-		return
-	}
-
-	gCtx.JSON(http.StatusOK, &registerResp{
-		Ok: true,
-	})
-}
-
-func generateHashString(s string) string {
-	h := sha1.New()
-	h.Write([]byte(s))
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-const jwtPrefix = "Bearer "
-
-func (a *Application) WithAuthCheck(assignedRoles ...role.Role) func(ctx *gin.Context) {
-	log.Println("withauthcheck")
-	return func(gCtx *gin.Context) {
-		jwtStr := gCtx.GetHeader("Authorization")
-		if !strings.HasPrefix(jwtStr, jwtPrefix) { // если нет префикса то нас дурят!
-			gCtx.AbortWithStatus(http.StatusForbidden) // отдаем что нет доступа
-
-			return // завершаем обработку
-		}
-
-		log.Println("prefix ok")
-
-		// отрезаем префикс
-		jwtStr = jwtStr[len(jwtPrefix):]
-
-		token, err := jwt.ParseWithClaims(jwtStr, &ds.JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
-			return []byte(a.config.JWT.Token), nil
-		})
-		log.Println("token:", token)
-		if err != nil {
-			gCtx.AbortWithStatus(http.StatusForbidden)
-			log.Println(err)
-
-			return
-		}
-
-		myClaims := token.Claims.(*ds.JWTClaims)
-
-		for _, oneOfAssignedRole := range assignedRoles {
-			if myClaims.Role == oneOfAssignedRole {
-				gCtx.AbortWithStatus(http.StatusOK)
-
-				return
-			}
-		}
-
-		gCtx.AbortWithStatus(http.StatusForbidden)
-		log.Println("this role does not have enough rights")
-	}
-}
-
-type loginReq struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type loginResp struct {
-	Username    string
-	Role        role.Role
-	ExpiresIn   time.Duration `json:"expires_in"`
-	AccessToken string        `json:"access_token"`
-	TokenType   string        `json:"token_type"`
-}
-
-func (a *Application) Login(gCtx *gin.Context) {
-	log.Println("login")
-	cfg := a.config
-	req := &loginReq{}
-
-	err := json.NewDecoder(gCtx.Request.Body).Decode(req)
-	if err != nil {
-		gCtx.AbortWithError(http.StatusBadRequest, err)
-
-		return
-	}
-
-	user, err := a.repo.GetUserByLogin(req.Username)
-	log.Println("найден челик", req.Username, "-->", user.Username)
-	if err != nil {
-		gCtx.AbortWithError(http.StatusInternalServerError, err)
-
-		return
-	}
-
-	if req.Username == user.Username && user.Password == generateHashString(req.Password) {
-		// значит проверка пройдена
-		log.Println("проверка пройдена")
-		// генерируем ему jwt
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, &ds.JWTClaims{
-			StandardClaims: jwt.StandardClaims{
-				ExpiresAt: time.Now().Add(time.Second * 3600).Unix(),
-				IssuedAt:  time.Now().Unix(),
-				Issuer:    "web-admin",
-			},
-			UserUUID: uuid.New(), // test uuid
-			Role:     user.Role,
-		})
-
-		if token == nil {
-			gCtx.AbortWithError(http.StatusInternalServerError, fmt.Errorf("token is nil"))
-
-			return
-		}
-
-		strToken, err := token.SignedString([]byte(cfg.JWT.Token))
-		if err != nil {
-			gCtx.AbortWithError(http.StatusInternalServerError, fmt.Errorf("cant create str token"))
-
-			return
-		}
-
-		gCtx.JSON(http.StatusOK, loginResp{
-			Username:    user.Username,
-			Role:        user.Role,
-			AccessToken: strToken,
-			TokenType:   "Bearer",
-			ExpiresIn:   cfg.JWT.ExpiresIn,
-		})
-
-		gCtx.AbortWithStatus(http.StatusOK)
-	} else {
-		gCtx.AbortWithStatus(http.StatusForbidden) // отдаем 403 ответ в знак того что доступ запрещен
-	}
-}
-
-// Ping godoc
-// @Summary      Show hello text
-// @Description  very very friendly response
-// @Tags         Tests
-// @Produce      json
-// @Success      200  {object}  pingResp
-// @Router       /ping/{name} [get]
-func (a *Application) ping(gCtx *gin.Context) {
-	gCtx.JSON(http.StatusOK, gin.H{
-		"auth": true,
-	})
-}
-
-func New() Application {
-	app := Application{}
-
-	repo, _ := repository.New(dsn.FromEnv())
-
-	app.repo = *repo
-
-	return app
-}
-
-// Ping godoc
-// @Description  adding new resource
-// @Tags         Tests
-// @Produce      json
-// @Success      200  {object}  pingResp
-// @Router       /home [get]
+// @Summary Загрузка главной страницы
+// @Description Загружает главную страницу с ресурсами или выполняет поиск ресурсов по названию.
+// @Accept json
+// @Tags Resources
+// @Produce json
+// @Param title query string false "Название ресурса для поиска"
+// @Success 200 {object} map[string]interface{}
+// @Router /home [get]
 func (a *Application) loadHome(c *gin.Context) {
-	resourceName := c.DefaultQuery("title", "")
-	fmt.Println(resourceName)
+	title := c.Query("title") // для поиска
 
-	if resourceName == "" {
-		allRes, err := a.repo.GetAllResources()
+	allResources, err := a.repo.GetAllResources(title) // поиск либо по месту либо по названию
+	log.Println(allResources)
 
-		// получаем массив уникальных ресурсов по названию для главной страницы:
-		allRes = a.repo.UniqueResources(allRes)
-
-		if err != nil {
-			c.Error(err)
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"materials": allRes,
-		})
-
-		/* ДЛЯ 4 ЛАБЫ:
-		c.HTML(http.StatusOK, "hp_resources.html", gin.H{
-			"materials": allRes,
-		})
-
-		*/
-	} else {
-		foundResources, err := a.repo.SearchResources(resourceName)
-
-		if err != nil {
-			c.Error(err)
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"materials": a.repo.UniqueResources(foundResources),
-			"Material":  resourceName,
-		})
-
-		/*
-
-			c.HTML(http.StatusOK, "hp_resources.html", gin.H{
-					"materials": a.repo.FilteredResources(foundResources),
-					"Material":  resourceName,
-				})
-					ДЛЯ 4 ЛАБЫ: */
-
+	if err != nil {
+		c.Error(err)
 	}
+
+	c.JSON(http.StatusOK, allResources)
+
+	/* ДЛЯ 4 ЛАБЫ:
+	c.HTML(http.StatusOK, "hp_resources.html", gin.H{
+		"materials": allRes,
+	})
+
+	*/
 }
 
-// Ping godoc
-// @Description  adding new resource
-// @Tags         Tests
-// @Produce      json
-// @Success      200  {object}  pingResp
-// @Router       /home/{title} [get]
+// @Summary Загрузка страницы ресурса
+// @Description Загружает страницу с определенным ресурсом и информацию о нем
+// @Accept json
+// @Tags Resources
+// @Produce json
+// @Param title path string true "Название ресурса"
+// @Success 200 {object} map[string]interface{}
+// @Router /home/{title} [get]
 func (a *Application) loadPage(c *gin.Context) {
 	resource_name := c.Param("title")
 
@@ -400,25 +195,14 @@ func (a *Application) loadPage(c *gin.Context) {
 				ДЛЯ 4 ЛАБЫ: */
 }
 
-func (a *Application) loadNewRes(c *gin.Context) {
-	resource_name := c.Query("resource_name")
-	fmt.Println(resource_name)
-	//c.JSON(http.StatusOK, gin.H{
-	//		"curr resource": resource_name,
-	//	})
-
-	c.HTML(http.StatusOK, "new_resource.html", gin.H{
-		"curr resource": resource_name,
-	})
-
-}
-
-// Ping godoc
-// @Description  adding new resource
-// @Tags         Tests
-// @Produce      json
-// @Success      200  {object}  pingResp
-// @Router       /ping/{name} [get]
+// @Summary Добавление нового ресурса
+// @Description Добавляет новый ресурс с соответсвующими параметрами
+// @Accept json
+// @Tags Resources
+// @Produce json
+// @Param resource body ds.AddResRequestBody true "Ресурс"
+// @Success 200 {object} map[string]interface{}
+// @Router /home/add_resource [post]
 func (a *Application) addResource(c *gin.Context) {
 	var requestBody ds.AddResRequestBody
 
@@ -456,12 +240,14 @@ func (a *Application) addResource(c *gin.Context) {
 	}
 }
 
-// Ping godoc
-// @Description  adding new resource
-// @Tags         Tests
-// @Produce      json
-// @Success      200  {object}  pingResp
-// @Router       /home/change_res_status/{title} [post]
+// @Summary Удаление ресурса
+// @Description Логически удаляет ресурс (меняет статус)
+// @Accept json
+// @Tags Resources
+// @Produce json
+// @Param title path string true "Название ресурса"
+// @Success 200 {object} map[string]interface{}
+// @Router /home/delete_resource/{title} [post]
 func (a *Application) deleteResource(c *gin.Context) {
 	resource_name := c.Param("title")
 	err := a.repo.ChangeAvailability(resource_name)
@@ -474,14 +260,25 @@ func (a *Application) deleteResource(c *gin.Context) {
 	fmt.Println("redirected")
 }
 
+// @Summary Изменение данные о ресурсе
+// @Description Можно изменить название, статус и картинку
+// @Accept json
+// @Tags Resources
+// @Produce json
+// @Param resource body ds.Resources true "Ресурс"
+// @Success 200 {object} map[string]interface{}
+// @Router /home/{title}/edit_resource [put]
 func (a *Application) editResource(c *gin.Context) {
-	var requestBody ds.EditResNameRequestBody
+	resource_name := c.Param("title")
+	resources, err := a.repo.GetResourcesByName(resource_name)
 
-	if err := c.BindJSON(&requestBody); err != nil {
-		// error handler
+	var editingResource ds.Resources
+
+	if err := c.BindJSON(&editingResource); err != nil {
+		c.Error(err)
 	}
 
-	err := a.repo.EditResourceName(requestBody.OldName, requestBody.NewName)
+	err = a.repo.EditResource(resources[0].ResourceName, editingResource)
 
 	if err != nil {
 		c.Error(err)
@@ -489,17 +286,22 @@ func (a *Application) editResource(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"old name": requestBody.OldName,
-		"new name": requestBody.NewName,
+		"NewName":        editingResource.ResourceName,
+		"NewIsAvailable": editingResource.IsAvailable,
+		"NewPlace":       editingResource.Place,
+		"NewMonth":       editingResource.Month,
+		"NewMonthlyProd": editingResource.MonthlyProduction,
 	})
 }
 
-// Ping godoc
-// @Description  adding monthly prod
-// @Tags         Tests
-// @Produce      json
-// @Success      200  {object}  pingResp
-// @Router      /home/{title}/add_monthly_prod [post]
+// @Summary Добавление информации о месячной добычи
+// @Description Если записей о добыче ресурса еще нет, то изменяет эту запись. Если же информация о добыче за какие-то месяцы уже есть, то создает новую запись
+// @Accept json
+// @Tags Resources
+// @Produce json
+// @Param resource body ds.AddMonthlyProd true "Месячная доыбча"
+// @Success 200 {object} map[string]interface{}
+// @Router /home/{title}/add_monthly_prod [post]
 func (a *Application) addMonthlyProd(c *gin.Context) {
 	var requestBody ds.AddMonthlyProd
 
@@ -510,7 +312,7 @@ func (a *Application) addMonthlyProd(c *gin.Context) {
 		// error handler
 	}
 
-	resources, _ := a.repo.GetAllResources()
+	resources, _ := a.repo.GetAllResources("")
 
 	res := true
 	for x := range resources {
@@ -545,12 +347,14 @@ func (a *Application) addMonthlyProd(c *gin.Context) {
 
 }
 
-// Ping godoc
-// @Description  adding new resource
-// @Tags         Tests
-// @Produce      json
-// @Success      200  {object}  pingResp
-// @Router   /home/{title}/add_report [post]
+// @Summary Добавление отчета о добыче
+// @Description Добавление отчета по добыче по какому-то ресурса (по месту, в котором он добывается)
+// @Accept json
+// @Tags Resources
+// @Produce json
+// @Param title path string true "Название ресурса"
+// @Success 200 {object} map[string]interface{}
+// @Router /home/{title}/add_report [post]
 func (a *Application) addReport(c *gin.Context) {
 	resource_name := c.Param("title")
 
@@ -580,12 +384,37 @@ func (a *Application) addReport(c *gin.Context) {
 	})
 }
 
-// / Ping godoc
-// @Description  adding new resource
-// @Tags         Tests
-// @Produce      json
-// @Success      200  {object}  pingResp
-// @Router   home/get_report/{title} [get]
+func (a *Application) getAllReports(c *gin.Context) {
+	dateStart := c.Query("date_start")
+	dateFin := c.Query("date_fin")
+
+	userRole, exists := c.Get("role")
+	if !exists {
+		panic(exists)
+	}
+	//userUUID, exists := c.Get("userUUID")
+	//if !exists {
+	//	panic(exists)
+	//}
+
+	requests, err := a.repo.GetAllRequests(userRole, dateStart, dateFin)
+
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusFound, requests)
+}
+
+// @Summary Получение отчета по его айди
+// @Description Получение отчета по его айди
+// @Accept json
+// @Tags Reports
+// @Produce json
+// @Param title path string true "ID отчета"
+// @Success 200 {object} map[string]interface{}
+// @Router /home/get_report/{title} [get]
 func (a *Application) getReportByID(c *gin.Context) {
 	id := c.Param("title")
 	id_uint, _ := strconv.ParseUint(id, 10, 64)
@@ -603,12 +432,16 @@ func (a *Application) getReportByID(c *gin.Context) {
 
 // statuses for admin: на рассмотрении / отклонен / оказано
 // statuses for user: черновик / удален
-// Ping godoc
-// @Description  adding new resource
-// @Tags         Tests
-// @Produce      json
-// @Success      200  {object}  pingResp
-// @Router   /home/get_report/{title}/change_status [put]
+
+// @Summary Изменить статус у отчета
+// @Description Изменение статуса у отчета с ограничениями
+// @Accept json
+// @Tags Reports
+// @Produce json
+// @Param title path string true "ID отчета"
+// @Param change body ds.ChangeStatusRequestBody true "Кто меняет / на какой статус"
+// @Success 200 {object} map[string]interface{}
+// @Router /home/get_report/{title}/change_status [put]
 func (a *Application) changeStatus(c *gin.Context) {
 	id := c.Param("title")
 	id_uint, _ := strconv.ParseUint(id, 10, 64)
@@ -649,13 +482,16 @@ func (a *Application) changeStatus(c *gin.Context) {
 	}
 }
 
-// меняем статус заявки на "удален" и физически удаляем соста заявки из ММ
-// Ping godoc
-// @Description  adding new resource
-// @Tags         Tests
-// @Produce      json
-// @Success      200  {object}  pingResp
-// @Router   /home/delete_report/{title} [post]
+// меняем статус заявки на "удален" и физически удаляем состав заявки из ММ
+
+// @Summary Удаление отчета
+// @Description Логическое удаление отчета из таблицы отчетов и физическое от таблицы ММ
+// @Accept json
+// @Tags Reports
+// @Produce json
+// @Param title path string true "ID отчета"
+// @Success 200 {object} map[string]interface{}
+// @Router /home/delete_report/{title} [post]
 func (a *Application) deleteReport(c *gin.Context) {
 	report_ref := c.Param("title")
 	id_report, _ := strconv.ParseUint(report_ref, 10, 64)
@@ -679,3 +515,204 @@ func (a *Application) deleteReport(c *gin.Context) {
 }
 
 // ------------------------------------------------------------------------------------------------ //
+
+type loginReq struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type loginResp struct {
+	Username    string
+	Role        role.Role
+	ExpiresIn   time.Duration `json:"expires_in"`
+	AccessToken string        `json:"access_token"`
+	TokenType   string        `json:"token_type"`
+}
+
+type registerReq struct {
+	Name string    `json:"username"` // лучше назвать то же самое что login
+	Pass string    `json:"password"`
+	Role role.Role `json:"role"`
+}
+
+type registerResp struct {
+	Ok bool `json:"ok"`
+}
+
+type pingReq struct{}
+type pingResp struct {
+	Status string `json:"status"`
+}
+
+// @Summary Загрузка страницы ресурса
+// @Description Загружает страницу с определенным ресурсом и информацию о нем
+// @Accept json
+// @Tags Auth
+// @Produce json
+// @Param title path string true "Название ресурса"
+// @Success 200 {object} map[string]interface{}
+// @Router /ping [get]
+func (a *Application) ping(gCtx *gin.Context) {
+	log.Println("ping func")
+	gCtx.JSON(http.StatusOK, gin.H{
+		"auth": true,
+	})
+}
+
+func (a *Application) register(gCtx *gin.Context) {
+	req := &registerReq{}
+
+	err := json.NewDecoder(gCtx.Request.Body).Decode(req)
+	if err != nil {
+		gCtx.AbortWithError(http.StatusBadRequest, err)
+		return
+	}
+
+	if req.Pass == "" {
+		gCtx.AbortWithError(http.StatusBadRequest, fmt.Errorf("pass is empty"))
+		return
+	}
+
+	if req.Name == "" {
+		gCtx.AbortWithError(http.StatusBadRequest, fmt.Errorf("name is empty"))
+		return
+	}
+
+	err = a.repo.Register(&ds.UserUuid{
+		UUID:     uuid.New(),
+		Role:     role.User,
+		Username: req.Name,
+		Password: generateHashString(req.Pass), // пароли делаем в хешированном виде и далее будем сравнивать хеши, чтобы их не угнали с базой вместе
+	})
+	if err != nil {
+		gCtx.AbortWithError(http.StatusInternalServerError, err)
+		return
+	}
+
+	gCtx.JSON(http.StatusOK, &registerResp{
+		Ok: true,
+	})
+}
+
+func generateHashString(s string) string {
+	h := sha1.New()
+	h.Write([]byte(s))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// @Summary Загрузка страницы ресурса
+// @Description Загружает страницу с определенным ресурсом и информацию о нем
+// @Accept json
+// @Tags Auth
+// @Produce json
+// @Param title path string true "Название ресурса"
+// @Success 200 {object} map[string]interface{}
+// @Router /login [get]
+func (a *Application) login(gCtx *gin.Context) {
+	log.Println("login")
+	cfg := a.config
+	req := &loginReq{}
+
+	err := json.NewDecoder(gCtx.Request.Body).Decode(req)
+	if err != nil {
+		gCtx.AbortWithError(http.StatusBadRequest, err)
+
+		return
+	}
+
+	user, err := a.repo.GetUserByLogin(req.Username)
+	log.Println("найден челик", req.Username, "-->", user.Username)
+	if err != nil {
+		gCtx.AbortWithError(http.StatusInternalServerError, err)
+
+		return
+	}
+
+	if req.Username == user.Username && user.Password == generateHashString(req.Password) {
+		// значит проверка пройдена
+		log.Println("проверка пройдена")
+		// генерируем ему jwt
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, &ds.JWTClaims{
+			StandardClaims: jwt.StandardClaims{
+				ExpiresAt: time.Now().Add(time.Second * 3600).Unix(),
+				IssuedAt:  time.Now().Unix(),
+				Issuer:    "web-admin",
+			},
+			UserUUID: uuid.New(), // test uuid
+			Role:     user.Role,
+		})
+		if token == nil {
+			gCtx.AbortWithError(http.StatusInternalServerError, fmt.Errorf("token is nil"))
+
+			return
+		}
+
+		strToken, err := token.SignedString([]byte(cfg.JWT.Token))
+		if err != nil {
+			gCtx.AbortWithError(http.StatusInternalServerError, fmt.Errorf("cant create str token"))
+
+			return
+		}
+
+		gCtx.SetCookie("resources-api-token", "Bearer "+strToken, int(time.Now().Add(time.Second*3600).Unix()), "", "", true, false)
+
+		log.Println(strToken)
+		gCtx.JSON(http.StatusOK, loginResp{
+			Username:    user.Username,
+			Role:        user.Role,
+			AccessToken: strToken,
+			TokenType:   "Bearer",
+			ExpiresIn:   cfg.JWT.ExpiresIn,
+		})
+
+		gCtx.AbortWithStatus(http.StatusOK)
+	} else {
+		gCtx.AbortWithStatus(http.StatusForbidden) // отдаем 403 ответ в знак того что доступ запрещен
+	}
+}
+
+// @Summary Загрузка страницы ресурса
+// @Description Загружает страницу с определенным ресурсом и информацию о нем
+// @Accept json
+// @Tags Auth
+// @Produce json
+// @Param title path string true "Название ресурса"
+// @Success 200 {object} map[string]interface{}
+// @Router /logout [get]
+func (a *Application) logout(c *gin.Context) {
+	// получаем заголовок
+
+	jwtStr, err := GetJWTToken(c)
+	if err != nil {
+		panic(err)
+	}
+
+	if !strings.HasPrefix(jwtStr, jwtPrefix) { // если нет префикса то нас дурят!
+		c.AbortWithStatus(http.StatusForbidden) // отдаем что нет доступа
+
+		return // завершаем обработку
+	}
+
+	// отрезаем префикс
+	jwtStr = jwtStr[len(jwtPrefix):]
+
+	_, err = jwt.ParseWithClaims(jwtStr, &ds.JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
+		return []byte(a.config.JWT.Token), nil
+	})
+	if err != nil {
+		c.AbortWithError(http.StatusBadRequest, err)
+		log.Println(err)
+
+		return
+	}
+
+	// сохраняем в блеклист редиса
+	err = a.redis.WriteJWTToBlackList(c.Request.Context(), jwtStr, a.config.JWT.ExpiresIn)
+	if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err)
+
+		return
+	}
+
+	c.Status(http.StatusOK)
+}

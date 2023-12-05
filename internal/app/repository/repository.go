@@ -3,6 +3,7 @@ package repository
 import (
 	"ResourceExtraction/internal/app/ds"
 	mClient "ResourceExtraction/internal/app/minio"
+	"ResourceExtraction/internal/app/role"
 	"context"
 	"fmt"
 	"github.com/google/uuid"
@@ -33,12 +34,19 @@ func New(dsn string) (*Repository, error) {
 }
 
 func firstLetterToHigher(s string) string {
-	if len(s) == 0 {
-		return s
+	words := strings.Fields(s)
+	for i, word := range words {
+		runes := []rune(word)
+		runes[0] = unicode.ToTitle(runes[0])
+		words[i] = string(runes)
 	}
-	r := []rune(s)
-	r[0] = unicode.ToTitle(r[0])
-	return string(r)
+	return strings.Join(words, " ")
+}
+
+func generateUniqueObjectName() string {
+	// Ваш код для генерации уникального имени объекта, например, использование UUID
+	// Пример: можно использовать github.com/google/uuid
+	return uuid.New().String()
 }
 
 //---------------------------------------------------------------------------
@@ -55,20 +63,15 @@ func (r *Repository) GetResourceByID(id int) (*ds.Resources, error) {
 	return resource, nil
 }
 
-func (r *Repository) SearchResources(resName string) ([]ds.Resources, error) {
-	allResources, _ := r.GetAllResources()
-	var uniqueResources []ds.Resources
-	resName = strings.ToLower(resName)
-	resName = firstLetterToHigher(resName)
-	resName = "%" + resName + "%"
-
-	err := r.db.Where("resource_name LIKE ?", resName).Find(&allResources).Error
-	if err != nil {
-		return nil, err
+func isUnique(slice []string) bool {
+	seen := make(map[string]int)
+	for _, v := range slice {
+		seen[v]++
+		if seen[v] > 1 {
+			return false
+		}
 	}
-
-	uniqueResources = append(uniqueResources, allResources[0])
-	return uniqueResources, nil
+	return true
 }
 
 func (r *Repository) DeleteResource(resName string) error {
@@ -105,15 +108,22 @@ func (r *Repository) AddResource(resName string, place, imagePath string) error 
 		imagePath}).Error
 }
 
-func (r *Repository) GetAllResources() ([]ds.Resources, error) {
+func (r *Repository) GetAllResources(title string) ([]ds.Resources, error) {
 	resources := []ds.Resources{}
-
-	err := r.db.Order("id").Find(&resources).Error
-
-	if err != nil {
-		return nil, err
+	title = firstLetterToHigher(strings.ToLower(title))
+	if title != "" {
+		log.Println("searching:", title)
+	}
+	err := r.db.Where("resource_name LIKE ?", "%"+title+"%").Find(&resources).Error
+	if len(resources) == 0 && err == nil {
+		log.Println("not found by name. searched by place")
+		err1 := r.db.Where("place LIKE ?", "%"+title+"%").Find(&resources).Error
+		if err1 != nil {
+			return nil, err1
+		}
 	}
 
+	resources = r.UniqueResources(resources)
 	return resources, nil
 }
 
@@ -136,6 +146,16 @@ func (r *Repository) UniqueResources(allRes []ds.Resources) []ds.Resources {
 
 	fmt.Println("after: ", len(newResources))
 	return newResources
+}
+
+func (r *Repository) GetResourcesByPlace(place string) ([]ds.Resources, error) {
+	resources := []ds.Resources{}
+
+	err := r.db.Where("place = ?", place).Find(&resources).Error
+	if err != nil {
+		return nil, err
+	}
+	return resources, nil
 }
 
 func (r *Repository) FilteredResources(resources []ds.Resources) []ds.Resources {
@@ -169,10 +189,32 @@ func (r *Repository) GetResourcesByName(name string) ([]ds.Resources, error) {
 	return resources, nil
 }
 
-func (r *Repository) EditResourceName(resName, newName string) error {
-	return r.db.Model(&ds.Resources{}).Where(
-		"resource_name", resName).Update(
-		"resource_name", newName).Error
+func (r *Repository) EditResource(resource_name string, editingResource ds.Resources) error {
+	originalResource, err := r.GetResourceByName(resource_name)
+	if err != nil {
+		return err
+	}
+
+	log.Println("OLD IMAGE: ", originalResource.Image)
+	log.Println("NEW IMAGE: ", editingResource.Image)
+
+	if editingResource.Image != originalResource.Image && editingResource.Image != "" {
+		log.Println("REPLACING IMAGE")
+		err := r.deleteImageFromMinio(originalResource.Image)
+		if err != nil {
+			return err
+		}
+		imageURL, err := r.uploadImageToMinio(editingResource.Image)
+		if err != nil {
+			return err
+		}
+
+		editingResource.Image = imageURL
+
+		log.Println("IMAGE REPLACED")
+	}
+
+	return r.db.Model(&ds.Resources{}).Where("resource_name = ?", resource_name).Updates(editingResource).Error
 }
 
 func (r *Repository) AddMonthlyProd(resName, place, month string, monthlyProd float64) error {
@@ -186,6 +228,15 @@ func (r *Repository) AddMonthlyProd(resName, place, month string, monthlyProd fl
 			}
 		}
 	*/
+	var editingResource ds.Resources
+	resource, err := r.GetResourceByName(resName)
+	// если такой ресурс уже есть, но без сведения о добыче хотя бы за один месяц - изменяем существующую запись
+	if resource.MonthlyProduction == 0 && resource.Month == "" && err == nil {
+		editingResource.Month = month
+		editingResource.MonthlyProduction = monthlyProd
+		return r.db.Model(&ds.Resources{}).Where("resource_name = ?", resName).Updates(editingResource).Error
+	}
+	// если же записи о месячной добыче у этого ресурса нет - создаем новую запись
 	return r.db.Create(&ds.Resources{
 		uint(len([]ds.Resources{})),
 		resName,
@@ -193,40 +244,42 @@ func (r *Repository) AddMonthlyProd(resName, place, month string, monthlyProd fl
 		month,
 		monthlyProd,
 		place,
-		""}).Error
-}
-
-func (r *Repository) uploadImageToMinio(imagePath string) (string, error) {
-	// Получаем клиента Minio из настроек
-	minioClient := mClient.NewMinioClient()
-
-	// Загрузка изображения в Minio
-	file, err := os.Open(imagePath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	// Генерация уникального имени объекта в Minio (например, используя UUID)
-	objectName := generateUniqueObjectName() + ".jpg"
-
-	_, err = minioClient.PutObject(context.Background(), "pc-bucket", objectName, file, -1, minio.PutObjectOptions{})
-	if err != nil {
-		return "", err
-	}
-
-	// Возврат URL изображения в Minio
-	return fmt.Sprintf("http://%s/%s/%s", minioClient.EndpointURL().Host, "pc-bucket", objectName), nil
-}
-
-func generateUniqueObjectName() string {
-	// Ваш код для генерации уникального имени объекта, например, использование UUID
-	// Пример: можно использовать github.com/google/uuid
-	return uuid.New().String()
+		"http://127.0.0.1:9000/pc-bucket/placeholder.jpg"}).Error
 }
 
 // ---------------------------------------------------------------------------
 // --------------------------------- REPORTS ---------------------------------
+func (r *Repository) GetAllRequests(userRole any, dateStart, dateFin string) ([]ds.ExtractionReports, error) {
+
+	requests := []ds.ExtractionReports{}
+	qry := r.db
+
+	if dateStart != "" && dateFin != "" {
+		qry = qry.Where("date_processed BETWEEN ? AND ?", dateStart, dateFin)
+	} else if dateStart != "" {
+		qry = qry.Where("date_processed >= ?", dateStart)
+	} else if dateFin != "" {
+		qry = qry.Where("date_processed <= ?", dateFin)
+	}
+
+	if userRole == role.Admin {
+		qry = qry.Where("status = ?", ds.ReqStatuses[4])
+	} else {
+		qry = qry.Where("status IN ?", ds.ReqStatuses[:2])
+	}
+
+	err := qry.
+		Preload("Client").Preload("Moder"). //данные для полей типа User: {ID, Name, IsModer)
+		Order("id").
+		Find(&requests).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return requests, nil
+}
+
 func (r *Repository) GetCurrentReport(client_refer int) (*ds.ExtractionReports, error) {
 	request := &ds.ExtractionReports{}
 	err := r.db.Where("status = ?", "черновик").First(request, "client_ref = ?", client_refer).Error
@@ -343,4 +396,44 @@ func (r *Repository) DeleteUser(username string) error {
 
 func (r *Repository) CreateUser(user ds.Users) error {
 	return r.db.Create(user).Error
+}
+
+//---------------------------------------------------------------------------
+//---------------------------------- MINIO ----------------------------------
+
+func (r *Repository) uploadImageToMinio(imagePath string) (string, error) {
+	// Получаем клиента Minio из настроек
+	minioClient := mClient.NewMinioClient()
+
+	// Загрузка изображения в Minio
+	file, err := os.Open(imagePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	// Генерация уникального имени объекта в Minio (например, используя UUID)
+	objectName := generateUniqueObjectName() + ".jpg"
+
+	_, err = minioClient.PutObject(context.Background(), "pc-bucket", objectName, file, -1, minio.PutObjectOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	// Возврат URL изображения в Minio
+	return fmt.Sprintf("http://%s/%s/%s", minioClient.EndpointURL().Host, "pc-bucket", objectName), nil
+}
+
+func (r *Repository) deleteImageFromMinio(imageURL string) error {
+	minioClient := mClient.NewMinioClient()
+
+	objectName := extractObjectNameFromURL(imageURL)
+
+	return minioClient.RemoveObject(context.Background(), "pc-bucket", objectName, minio.RemoveObjectOptions{})
+}
+
+func extractObjectNameFromURL(imageURL string) string {
+	parts := strings.Split(imageURL, "/")
+	log.Println("\n\nIMG:   ", parts[len(parts)-1])
+	return parts[len(parts)-1]
 }
