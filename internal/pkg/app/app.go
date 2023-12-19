@@ -75,24 +75,24 @@ func (a *Application) StartServer() {
 	a.r.POST("/register", a.register)
 	a.r.POST("/login", a.login)
 	a.r.POST("/logout", a.logout)
+
 	// доступ имеет только user
 	//a.r.Use(a.WithAuthCheck(role.User)).GET("/ping", a.ping)
-	a.r.GET("/resources", a.loadHome)
+	a.r.GET("/resources", a.getAllResources)
 	a.r.GET("/resources/:title", a.loadPage)
 
 	clientMethods := a.r.Group("", a.WithAuthCheck(role.User))
 	{
-		//старое создание заявки + добавление в м-м (не используется скорее всего) -> удалить?
-		//clientMethods.POST("/orbits/:orbit_name/add", a.addOrbitToRequest)
-
 		//актуальное создание заявки + добавление в м-м
-		clientMethods.POST("/reports/create", a.createReport)
+		clientMethods.POST("/reports/:title/add", a.addResourceToReport)
 
 		//актуальное обновление записей в м-м
-		clientMethods.PUT("/reports/set_resources", a.setRequestOrbits)
 
 		clientMethods.POST("/reports/:title/delete", a.deleteReport)
+		clientMethods.PUT("/reports/:title/add_data", a.addDataToReport)
 		clientMethods.DELETE("/manage_reports/delete_single", a.deleteSingleFromMM)
+		clientMethods.PUT("/manage_reports/add_plan", a.addPlanToMM)
+
 	}
 
 	moderMethods := a.r.Group("", a.WithAuthCheck(role.Admin))
@@ -105,6 +105,7 @@ func (a *Application) StartServer() {
 
 	authorizedMethods := a.r.Group("", a.WithAuthCheck(role.User, role.Admin))
 	{
+		authorizedMethods.PUT("/reports/set_resources", a.setRequestOrbits)
 		authorizedMethods.GET("/reports", a.getAllReports)
 		authorizedMethods.GET("/reports/:title", a.getDetailedReport)
 		authorizedMethods.GET("/reports/status/:status", a.getReportsByStatus)
@@ -112,7 +113,7 @@ func (a *Application) StartServer() {
 		authorizedMethods.PUT("/reports/change_status", a.changeStatus)
 	}
 
-	a.r.Run(":8080")
+	a.r.Run(":8000")
 
 	log.Println("Server is down")
 }
@@ -145,6 +146,22 @@ func (a *Application) loadHome(c *gin.Context) {
 	*/
 }
 
+func (a *Application) getAllResources(c *gin.Context) {
+	resourceName := c.Query("resourceName")
+	ocean := c.Query("resourceFromOcean")
+	vost := c.Query("resourceFromVost")
+	vlazh := c.Query("resourceFromVlazh")
+
+	allOrbits, err := a.repo.GetAllResourcesNative(resourceName, ocean, vost, vlazh)
+
+	if err != nil {
+		c.AbortWithError(http.StatusBadRequest, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, allOrbits)
+}
+
 // @Summary Загрузка страницы ресурса
 // @Description Загружает страницу с определенным ресурсом и информацию о нем
 // @Accept json
@@ -160,30 +177,28 @@ func (a *Application) loadPage(c *gin.Context) {
 		return
 	}
 
-	resources, err := a.repo.GetResourcesByName(resource_name)
+	resource, err := a.repo.GetResourceByName(resource_name)
 
 	if err != nil {
 		c.Error(err)
 		return
 	}
+	/*
+		var months []string
+		var monthlyProd []float64
 
-	var months []string
-	var monthlyProd []float64
-
-	for i := range resources {
-		months = append(months, resources[i].Month)
-		monthlyProd = append(monthlyProd, resources[i].MonthlyProduction)
-	}
-	log.Println(months)
-	log.Println(monthlyProd)
-
+			for i := range resources {
+				months = append(months, resources[i].Month)
+				monthlyProd = append(monthlyProd, resources[i].MonthlyProduction)
+			}
+			log.Println(months)
+			log.Println(monthlyProd)
+	*/
 	c.JSON(http.StatusOK, gin.H{
-		"ResourceName": resources[0].ResourceName,
-		"Image":        resources[0].Image,
-		"IsAvailable":  resources[0].IsAvailable,
-		"Place":        resources[0].Place,
-		"Months":       months,
-		"MonthlyProds": monthlyProd,
+		"ResourceName": resource.ResourceName,
+		"Image":        resource.Image,
+		"IsAvailable":  resource.IsAvailable,
+		"Desc":         resource.Description,
 	})
 
 	/*
@@ -225,7 +240,7 @@ func (a *Application) addResource(c *gin.Context) {
 	}
 
 	if res == true {
-		err := a.repo.AddResource(requestBody.ResourceName, requestBody.Place, requestBody.Image)
+		err := a.repo.AddResource(requestBody.ResourceName, requestBody.Image, requestBody.Desc)
 		log.Println(requestBody.ResourceName, " is added")
 
 		if err != nil {
@@ -294,9 +309,8 @@ func (a *Application) editResource(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"NewName":        editingResource.ResourceName,
 		"NewIsAvailable": editingResource.IsAvailable,
-		"NewPlace":       editingResource.Place,
-		"NewMonth":       editingResource.Month,
-		"NewMonthlyProd": editingResource.MonthlyProduction,
+		"NewImage":       editingResource.Image,
+		"NewDesc":        editingResource.Description,
 	})
 }
 
@@ -308,6 +322,7 @@ func (a *Application) editResource(c *gin.Context) {
 // @Param resource body ds.AddMonthlyProd true "Месячная доыбча"
 // @Success 200 {object} map[string]interface{}
 // @Router /home/{title}/add_monthly_prod [post]
+/*
 func (a *Application) addMonthlyProd(c *gin.Context) {
 	var requestBody ds.AddMonthlyProd
 
@@ -351,7 +366,7 @@ func (a *Application) addMonthlyProd(c *gin.Context) {
 		})
 	}
 
-}
+}*/
 
 // @Summary Добавление отчета о добыче
 // @Description Добавление отчета по добыче по какому-то ресурса (по месту, в котором он добывается)
@@ -391,31 +406,42 @@ func (a *Application) addResourceToReport(c *gin.Context) {
 	}
 }
 */
-func (a *Application) createReport(c *gin.Context) {
-	var request_body ds.CreateReportBody
+func (a *Application) addResourceToReport(c *gin.Context) {
+	orbit_name := c.Param("title")
 
+	request_body := &ds.CreateReportBody{}
 	if err := c.BindJSON(&request_body); err != nil {
 		c.String(http.StatusBadGateway, "Не могу распознать json")
 		return
 	}
+	log.Println(request_body)
 
-	_userUUID, ok := c.Get("userUUID")
-
-	if !ok {
-		c.String(http.StatusInternalServerError, "Вы сначала должны залогиниться")
-		return
-	}
-
-	userUUID := _userUUID.(uuid.UUID)
-	err := a.repo.CreateTransferRequest(request_body, userUUID)
-
+	// Получение инфы об орбите -> orbit.ID
+	orbit, err := a.repo.GetResourceByName(orbit_name)
 	if err != nil {
 		c.Error(err)
-		c.String(http.StatusNotFound, "Не могу добавить ресурс")
 		return
 	}
 
-	c.String(http.StatusCreated, "Заявка создана")
+	userUUID, exists := c.Get("userUUID")
+	if !exists {
+		panic(exists)
+	}
+
+	request := &ds.ExtractionReports{}
+	request, err = a.repo.CreateTransferRequest(userUUID.(uuid.UUID))
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	err = a.repo.AddReportToMM(orbit.ID, request.ID)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, request.ID)
 }
 
 func (a *Application) setRequestOrbits(c *gin.Context) {
@@ -667,6 +693,53 @@ func (a *Application) deleteReport(c *gin.Context) {
 	}
 
 	c.String(http.StatusOK, "ExtractionReport & MM were deleted")
+}
+
+func (a *Application) addDataToReport(c *gin.Context) {
+	req_id, err1 := strconv.Atoi(c.Param("title"))
+	var requestBody ds.AddDataToReport
+	if err1 != nil {
+		// ... handle error
+		panic(err1)
+	}
+	if err := c.BindJSON(&requestBody); err != nil {
+		c.Error(err)
+		c.String(http.StatusBadRequest, "Bad Request")
+		return
+	}
+	log.Println(requestBody.Place, requestBody.Month)
+	err := a.repo.AddMonthPlaceToReport(uint(req_id), requestBody.Place, requestBody.Month)
+
+	if err != nil {
+		c.Error(err)
+		c.String(http.StatusBadRequest, "Bad Request")
+		return
+	}
+
+	c.String(http.StatusOK, "Added month and place to report")
+}
+
+func (a *Application) addPlanToMM(c *gin.Context) {
+	var requestBody ds.AddPlanToMM
+
+	if err := c.BindJSON(&requestBody); err != nil {
+		c.Error(err)
+		c.String(http.StatusBadRequest, "Bad Request")
+		return
+	}
+	resRef, err1 := a.repo.GetResourceByName(requestBody.ResourceRef)
+	if err1 == nil {
+		err := a.repo.AddResourcePlanToMM(requestBody.ReportRef, resRef.ID, requestBody.Plan)
+
+		if err != nil {
+			c.Error(err)
+			c.String(http.StatusBadRequest, "Bad Request")
+			return
+		}
+	}
+
+	c.String(http.StatusCreated, "Added plan to MM")
+	c.String(http.StatusCreated, "Added plan to MM")
 }
 
 func (a *Application) deleteFromMM(c *gin.Context) {

@@ -46,6 +46,20 @@ func firstLetterToHigher(s string) string {
 	return strings.Join(words, " ")
 }
 
+func removeDuplicates(slice []string) []string {
+	uniqueValuesMap := make(map[string]bool)
+	var uniqueValues []string
+
+	for _, value := range slice {
+		if _, exists := uniqueValuesMap[value]; !exists {
+			uniqueValuesMap[value] = true
+			uniqueValues = append(uniqueValues, value)
+		}
+	}
+
+	return uniqueValues
+}
+
 func generateUniqueObjectName() string {
 	// Ваш код для генерации уникального имени объекта, например, использование UUID
 	// Пример: можно использовать github.com/google/uuid
@@ -60,6 +74,45 @@ func (r *Repository) GenerateHashString(s string) string {
 
 //---------------------------------------------------------------------------
 //-------------------------------- RESOURCES --------------------------------
+
+func (r *Repository) GetAllResourcesNative(resourceName, oceanOnly, vostOnly, vlazhOnly string) ([]ds.Resources, error) {
+	orbits := []ds.Resources{}
+	qry := r.db
+
+	if resourceName != "" {
+		qry = qry.Where("resource_name ILIKE ?", "%"+resourceName+"%")
+	}
+
+	// Build dynamic OR conditions for place
+	var placeConditions []string
+	if oceanOnly != "" {
+		placeConditions = append(placeConditions, "place ILIKE '%Океан Бурь%'")
+	}
+
+	if vostOnly != "" {
+		placeConditions = append(placeConditions, "place ILIKE '%Море Восточное%'")
+	}
+
+	if vlazhOnly != "" {
+		placeConditions = append(placeConditions, "place ILIKE '%Море Влажности%'")
+	}
+
+	if len(placeConditions) > 0 {
+		qry = qry.Where(strings.Join(placeConditions, " OR "))
+	}
+
+	qry = qry.Where("is_available = ?", true)
+
+	err := qry.Order("resource_name").Find(&orbits).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	log.Println(orbits)
+	orbits = r.UniqueResources(orbits)
+	return orbits, err
+}
 
 func (r *Repository) GetResourceByID(id uint) (*ds.Resources, error) {
 	resource := &ds.Resources{}
@@ -87,7 +140,7 @@ func (r *Repository) ChangeAvailability(resName string) error {
 	return err
 }
 
-func (r *Repository) AddResource(resName string, place, imagePath string) error {
+func (r *Repository) AddResource(resName, imagePath, desc string) error {
 	image_placeholder := "http://127.0.0.1:9000/pc-bucket/placeholder.jpg"
 	if imagePath == "" {
 		imagePath = image_placeholder
@@ -96,10 +149,8 @@ func (r *Repository) AddResource(resName string, place, imagePath string) error 
 		uint(len([]ds.Resources{})),
 		resName,
 		true,
-		"",
-		0,
-		place,
-		imagePath}).Error
+		imagePath,
+		desc}).Error
 }
 
 func (r *Repository) GetAllResources(title string) ([]ds.Resources, error) {
@@ -211,36 +262,6 @@ func (r *Repository) EditResource(resource_name string, editingResource ds.Resou
 	return r.db.Model(&ds.Resources{}).Where("resource_name = ?", resource_name).Updates(editingResource).Error
 }
 
-func (r *Repository) AddMonthlyProd(resName, place, month string, monthlyProd float64) error {
-	/*
-		resources, _ := r.GetAllResources()
-		for x := range resources {
-			if resources[x].ResourceName == resName && resources[x].Place == place {
-				return r.db.Model(&ds.Resources{}).Where(
-					"resource_name = ?", resName).Where("place = ?", place).Update(
-					"monthly_production", monthlyProd).Update("month", month).Error
-			}
-		}
-	*/
-	var editingResource ds.Resources
-	resource, err := r.GetResourceByName(resName)
-	// если такой ресурс уже есть, но без сведения о добыче хотя бы за один месяц - изменяем существующую запись
-	if resource.MonthlyProduction == 0 && resource.Month == "" && err == nil {
-		editingResource.Month = month
-		editingResource.MonthlyProduction = monthlyProd
-		return r.db.Model(&ds.Resources{}).Where("resource_name = ?", resName).Updates(editingResource).Error
-	}
-	// если же записи о месячной добыче у этого ресурса нет - создаем новую запись
-	return r.db.Create(&ds.Resources{
-		uint(len([]ds.Resources{})),
-		resName,
-		true,
-		month,
-		monthlyProd,
-		place,
-		"http://127.0.0.1:9000/pc-bucket/placeholder.jpg"}).Error
-}
-
 // ---------------------------------------------------------------------------
 // --------------------------------- REPORTS ---------------------------------
 func (r *Repository) GetAllRequests(userRole any, dateStart, dateFin string) ([]ds.ExtractionReports, error) {
@@ -301,39 +322,30 @@ func (r *Repository) GetCurrentReport(client_refer uuid.UUID) (*ds.ExtractionRep
 	return request, nil
 }
 
-func (r *Repository) CreateTransferRequest(requestBody ds.CreateReportBody, userUUID uuid.UUID) error {
-	var orbit_ids []int
-	var orbit_names []string
-	for _, orbitName := range requestBody.Resources {
-		orbit, err := r.GetResourceByName(orbitName)
-		if err != nil {
-			return err
-		}
-		orbit_ids = append(orbit_ids, int(orbit.ID))
-		orbit_names = append(orbit_names, orbit.ResourceName)
-	}
-
-	request, err := r.GetCurrentReport(userUUID)
+// здесь передается место, по которому нас интересует отчет
+// далее получаются все ресурсы, которые в этом месте добываются
+func (r *Repository) CreateTransferRequest(client_id uuid.UUID) (*ds.ExtractionReports, error) {
+	request, err := r.GetCurrentReport(client_id)
 	if err != nil {
-		log.Println(" --- NEW REQUEST --- ", userUUID)
+		log.Println("NO OPENED REQUESTS => CREATING NEW ONE")
 
 		//назначение модератора
 		moders := []ds.Users{}
 		err = r.db.Where("role = ?", 1).Find(&moders).Error
 		if err != nil {
-			return err
+			return nil, err
 		}
 		n := rand.Int() % len(moders)
 		moder_refer := moders[n].UUID
 		log.Println("moder: ", moder_refer)
 
 		//поля типа Users, связанные с передавыемыми значениями из функции
-		client := ds.Users{UUID: userUUID}
+		client := ds.Users{UUID: client_id}
 		moder := ds.Users{UUID: moder_refer}
 
-		request = &ds.ExtractionReports{
+		NewTransferRequest := &ds.ExtractionReports{
 			ID:            uint(len([]ds.ExtractionReports{})),
-			ClientRef:     userUUID,
+			ClientRef:     client_id,
 			Client:        client,
 			ModeratorRef:  moder_refer,
 			Moderator:     moder,
@@ -342,33 +354,27 @@ func (r *Repository) CreateTransferRequest(requestBody ds.CreateReportBody, user
 			DateProcessed: nil,
 			DateFinished:  nil,
 		}
-
-		err := r.db.Create(request).Error
-		if err != nil {
-			return err
-		}
+		return NewTransferRequest, r.db.Create(NewTransferRequest).Error
 	}
+	return request, nil
+}
+func (r *Repository) AddReportToMM(orbit_refer, request_refer uint) error {
+	orbit := ds.Resources{ID: orbit_refer}
+	request := ds.ExtractionReports{ID: request_refer}
 
-	err = r.SetRequestOrbits(int(request.ID), orbit_names)
+	err := r.db.Where("report_ref = ?", request_refer).Where("resource_ref = ?", orbit_refer).First(&ds.ManageReports{}).Error
 	if err != nil {
+		NewMtM := &ds.ManageReports{
+			IdResource:  orbit,
+			ResourceRef: orbit_refer,
+			IdReport:    request,
+			ReportRef:   request_refer,
+		}
+		return r.db.Create(NewMtM).Error
+	} else {
 		return err
 	}
-
-	//for _, orbit_id := range orbit_ids {
-	//	transfer_to_orbit := ds.TransferToOrbit{}
-	//	transfer_to_orbit.RequestRefer = request.ID
-	//	transfer_to_orbit.OrbitRefer = uint(orbit_id)
-	//	err = r.CreateTransferToOrbit(transfer_to_orbit)
-	//
-	//	if err != nil {
-	//		return err
-	//	}
-	//}
-
-	return nil
-
 }
-
 func (r *Repository) SetRequestOrbits(transferID int, orbits []string) error {
 	var orbit_ids []int
 	log.Println(transferID, " - ", orbits)
@@ -526,12 +532,26 @@ func (r *Repository) ChangeReportStatus(id uint, status string) error {
 	return nil
 }
 
+func (r *Repository) AddMonthPlaceToReport(report_id uint, place, month string) error {
+	log.Println("---", place, month)
+	err := r.db.Model(&ds.ExtractionReports{}).Where("id = ?", report_id).Update("month", month).Error
+	if err == nil {
+		return r.db.Model(&ds.ExtractionReports{}).Where("id = ?", report_id).Update("place", place).Error
+	} else {
+		return err
+	}
+}
+
 func (r *Repository) DeleteReport(id uint) error {
 	if r.db.Where("id = ?", id).First(&ds.ExtractionReports{}).Error != nil {
 
 		return r.db.Where("id = ?", id).First(&ds.ExtractionReports{}).Error
 	}
 	return r.db.Model(&ds.ExtractionReports{}).Where("id = ?", id).Update("status", "Удалена").Error
+}
+
+func (r *Repository) AddResourcePlanToMM(report_id, resource_id uint, plan float64) error {
+	return r.db.Model(&ds.ManageReports{}).Where("report_ref = ? AND resource_ref = ?", report_id, resource_id).Update("plan", plan).Error
 }
 
 func (r *Repository) DeleteOneResourceFromMM(report_id, resource_id uint) (error, error) {
