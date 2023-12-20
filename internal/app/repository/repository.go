@@ -4,9 +4,11 @@ import (
 	"ResourceExtraction/internal/app/ds"
 	mClient "ResourceExtraction/internal/app/minio"
 	"ResourceExtraction/internal/app/role"
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
@@ -14,6 +16,7 @@ import (
 	"gorm.io/gorm"
 	"log"
 	"math/rand"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -506,7 +509,7 @@ func (r *Repository) GetReportByID(id uint, userUUID uuid.UUID, userRole any) (*
 }
 
 func (r *Repository) ChangeReportStatus(id uint, status string) error {
-	if slices.Contains(ds.ReqStatuses[2:4], status) {
+	if slices.Contains(ds.ReqStatuses[2:5], status) {
 		err := r.db.Model(&ds.ExtractionReports{}).Where("id = ?", id).Update("date_finished", time.Now()).Error
 		if err != nil {
 			return err
@@ -520,6 +523,21 @@ func (r *Repository) ChangeReportStatus(id uint, status string) error {
 		}
 	}
 
+	if status == "Оказана" {
+		resource_ids, err := r.GetResourcesByReportID(id)
+		if err != nil {
+			return err
+		} else {
+			for i := 0; i < int(len(resource_ids)); i++ {
+				err1 := r.SetResourcePlan(id, uint(resource_ids[i]))
+				if err1 != nil {
+					log.Println("error while inserting resource facts:", err)
+					return err1
+				}
+			}
+		}
+	}
+
 	err := r.db.Model(&ds.ExtractionReports{}).Where("id = ?", id).Update("status", status).Error
 	if err != nil {
 		return fmt.Errorf("ошибка обновления статуса: %w", err)
@@ -530,6 +548,40 @@ func (r *Repository) ChangeReportStatus(id uint, status string) error {
 	}
 
 	return nil
+}
+
+func (r *Repository) SetResourcePlan(report_ref, resource_ref uint) error {
+	url := "http://127.0.0.1:4000"
+
+	authKey := "secret-async-resources"
+
+	requestBody := map[string]interface{}{"report_ref": int(report_ref), "resource_ref": int(resource_ref)}
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", authKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
+func (r *Repository) GetResourcesByReportID(report_id uint) ([]int, error) {
+	var resourceRefs []int
+
+	err := r.db.Model(&ds.ManageReports{}).Where("report_ref = ?", report_id).Pluck("resource_ref", &resourceRefs).Error
+	return resourceRefs, err
 }
 
 func (r *Repository) AddMonthPlaceToReport(report_id uint, place, month string) error {
@@ -550,8 +602,12 @@ func (r *Repository) DeleteReport(id uint) error {
 	return r.db.Model(&ds.ExtractionReports{}).Where("id = ?", id).Update("status", "Удалена").Error
 }
 
-func (r *Repository) AddResourcePlanToMM(report_id, resource_id uint, plan float64) error {
+func (r *Repository) AddResourcePlanToMM(report_id, resource_id uint, plan int) error {
 	return r.db.Model(&ds.ManageReports{}).Where("report_ref = ? AND resource_ref = ?", report_id, resource_id).Update("plan", plan).Error
+}
+
+func (r *Repository) AddResourceFactToMM(report_id, resource_id uint, fact int) error {
+	return r.db.Model(&ds.ManageReports{}).Where("report_ref = ? AND resource_ref = ?", report_id, resource_id).Update("fact", fact).Error
 }
 
 func (r *Repository) DeleteOneResourceFromMM(report_id, resource_id uint) (error, error) {

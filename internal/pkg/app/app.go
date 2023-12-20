@@ -79,7 +79,9 @@ func (a *Application) StartServer() {
 	// доступ имеет только user
 	//a.r.Use(a.WithAuthCheck(role.User)).GET("/ping", a.ping)
 	a.r.GET("/resources", a.getAllResources)
-	a.r.GET("/resources/:title", a.loadPage)
+	a.r.POST("/resources/:title", a.loadPage)
+
+	a.r.POST("/async/:report_ref/:resource_ref", a.asyncInsertFact)
 
 	clientMethods := a.r.Group("", a.WithAuthCheck(role.User))
 	{
@@ -116,6 +118,24 @@ func (a *Application) StartServer() {
 	a.r.Run(":8000")
 
 	log.Println("Server is down")
+}
+
+func (a *Application) asyncInsertFact(c *gin.Context) {
+	log.Println("---")
+	var requestBody = &ds.AsyncBody{}
+	if err := c.BindJSON(&requestBody); err != nil {
+		log.Println("ERROR")
+		c.Error(err)
+	}
+	log.Println("ASYNC: ", requestBody.ReportID, " ---> ", requestBody.Fact)
+
+	err := a.repo.AddResourceFactToMM(uint(requestBody.ReportID), uint(requestBody.ResourceID), requestBody.Fact)
+	if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, requestBody.Fact)
 }
 
 // @Summary Загрузка главной страницы
@@ -729,7 +749,7 @@ func (a *Application) addPlanToMM(c *gin.Context) {
 	}
 	resRef, err1 := a.repo.GetResourceByName(requestBody.ResourceRef)
 	if err1 == nil {
-		err := a.repo.AddResourcePlanToMM(requestBody.ReportRef, resRef.ID, requestBody.Plan)
+		err := a.repo.AddResourcePlanToMM(requestBody.ReportRef, resRef.ID, int(requestBody.Plan))
 
 		if err != nil {
 			c.Error(err)
@@ -738,7 +758,6 @@ func (a *Application) addPlanToMM(c *gin.Context) {
 		}
 	}
 
-	c.String(http.StatusCreated, "Added plan to MM")
 	c.String(http.StatusCreated, "Added plan to MM")
 }
 

@@ -110,3 +110,9 @@ type AddDataToReport struct {
 	Place string `json:"place"`
 	Month string `json:"month"`
 }
+
+type AsyncBody struct {
+	ReportID   int `json:"report_ref"`
+	ResourceID int `json:"resource_ref"`
+	Fact       int `json:"fact"`
+}
