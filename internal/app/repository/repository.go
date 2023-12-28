@@ -78,7 +78,7 @@ func (r *Repository) GenerateHashString(s string) string {
 //---------------------------------------------------------------------------
 //-------------------------------- RESOURCES --------------------------------
 
-func (r *Repository) GetAllResourcesNative(resourceName, oceanOnly, vostOnly, vlazhOnly string) ([]ds.Resources, error) {
+func (r *Repository) GetAllResourcesNative(resourceName, highDemand string) ([]ds.Resources, error) {
 	orbits := []ds.Resources{}
 	qry := r.db
 
@@ -86,22 +86,8 @@ func (r *Repository) GetAllResourcesNative(resourceName, oceanOnly, vostOnly, vl
 		qry = qry.Where("resource_name ILIKE ?", "%"+resourceName+"%")
 	}
 
-	// Build dynamic OR conditions for place
-	var placeConditions []string
-	if oceanOnly != "" {
-		placeConditions = append(placeConditions, "place ILIKE '%Океан Бурь%'")
-	}
-
-	if vostOnly != "" {
-		placeConditions = append(placeConditions, "place ILIKE '%Море Восточное%'")
-	}
-
-	if vlazhOnly != "" {
-		placeConditions = append(placeConditions, "place ILIKE '%Море Влажности%'")
-	}
-
-	if len(placeConditions) > 0 {
-		qry = qry.Where(strings.Join(placeConditions, " OR "))
+	if highDemand != "" {
+		qry = qry.Where("demand > 6")
 	}
 
 	qry = qry.Where("is_available = ?", true)
@@ -143,15 +129,19 @@ func (r *Repository) ChangeAvailability(resName string) error {
 	return err
 }
 
-func (r *Repository) AddResource(resName, imagePath, desc string) error {
+func (r *Repository) AddResource(resName, imagePath, desc string, density float64, demand int8, is_toxic bool) error {
 	image_placeholder := "http://127.0.0.1:9000/pc-bucket/placeholder.jpg"
 	if imagePath == "" {
 		imagePath = image_placeholder
 	}
+	log.Println(resName)
 	return r.db.Create(&ds.Resources{
 		uint(len([]ds.Resources{})),
 		resName,
 		true,
+		density,
+		is_toxic,
+		demand,
 		imagePath,
 		desc}).Error
 }
@@ -267,8 +257,8 @@ func (r *Repository) EditResource(resource_name string, editingResource ds.Resou
 
 // ---------------------------------------------------------------------------
 // --------------------------------- REPORTS ---------------------------------
-func (r *Repository) GetAllRequests(userRole any, dateStart, dateFin string) ([]ds.ExtractionReports, error) {
-
+func (r *Repository) GetAllRequests(userRole any, dateStart, dateFin string) ([]ds.ExtractionReports, int, error) {
+	var null_in_async int64
 	requests := []ds.ExtractionReports{}
 	qry := r.db
 
@@ -292,10 +282,16 @@ func (r *Repository) GetAllRequests(userRole any, dateStart, dateFin string) ([]
 		Find(&requests).Error
 
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return requests, nil
+	err1 := r.db.Model(&ds.ManageReports{}).Where("fact = 0").Count(&null_in_async).Error
+
+	if err1 != nil {
+		return nil, 0, err1
+	}
+
+	return requests, int(null_in_async), nil
 }
 
 func (r *Repository) GetReportsByStatus(status string) ([]ds.ExtractionReports, error) {
@@ -382,6 +378,7 @@ func (r *Repository) SetRequestOrbits(transferID int, orbits []string) error {
 	var orbit_ids []int
 	log.Println(transferID, " - ", orbits)
 	for _, orbit_name := range orbits {
+		log.Println(orbit_name)
 		orbit, err := r.GetResourceByName(orbit_name)
 		log.Println("orbit: ", orbit)
 		if err != nil {
@@ -488,6 +485,36 @@ func (r *Repository) GetOrbitsFromTransfer(id int) ([]ds.Resources, error) {
 
 	return orbits, nil
 
+}
+
+func (r *Repository) GetExtractionDataByRepID(id int) ([][]int, error) {
+	var reports []ds.ManageReports
+	var result [][]int
+
+	err := r.db.Model(&ds.ManageReports{}).Select("resource_ref", "plan", "fact").
+		Where("report_ref = ?", id).
+		Find(&reports).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, report := range reports {
+		result = append(result, []int{int(report.ResourceRef), int(report.Plan), int(report.Fact)})
+	}
+
+	return result, nil
+}
+
+func (r *Repository) GetAsyncProcessedAmount() (int64, error) {
+	MM := &ds.ManageReports{}
+	var count int64
+	err := r.db.Model(&MM).Where("fact != 0").Count(&count).Error
+	if err != nil {
+		return 0, err
+	}
+
+	return count, err
 }
 
 func (r *Repository) GetReportByID(id uint, userUUID uuid.UUID, userRole any) (*ds.ExtractionReports, error) {

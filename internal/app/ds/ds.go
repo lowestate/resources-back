@@ -34,6 +34,9 @@ type Resources struct {
 	ID           uint `gorm:"primaryKey;AUTO_INCREMENT"`
 	ResourceName string
 	IsAvailable  bool
+	Density      float64
+	IsToxic      bool
+	Demand       int8
 	Image        string `gorm:"column:image"`
 	Description  string
 }
@@ -65,7 +68,9 @@ type ManageReports struct {
 // JSON PARSER
 type AddResRequestBody struct {
 	ResourceName string
-	Place        string
+	Density      float64
+	IsToxic      bool
+	Demand       int8
 	Image        string
 	Desc         string
 }
@@ -115,4 +120,9 @@ type AsyncBody struct {
 	ReportID   int `json:"report_ref"`
 	ResourceID int `json:"resource_ref"`
 	Fact       int `json:"fact"`
+}
+
+type DeletSingleFromMMBody struct {
+	ResourceName string `json:"resource"`
+	RequestID    string `json:"req"`
 }

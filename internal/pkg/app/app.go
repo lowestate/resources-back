@@ -79,7 +79,7 @@ func (a *Application) StartServer() {
 	// доступ имеет только user
 	//a.r.Use(a.WithAuthCheck(role.User)).GET("/ping", a.ping)
 	a.r.GET("/resources", a.getAllResources)
-	a.r.POST("/resources/:title", a.loadPage)
+	a.r.GET("/resources/:title", a.loadPage)
 
 	a.r.POST("/async/:report_ref/:resource_ref", a.asyncInsertFact)
 
@@ -112,6 +112,8 @@ func (a *Application) StartServer() {
 		authorizedMethods.GET("/reports/:title", a.getDetailedReport)
 		authorizedMethods.GET("/reports/status/:status", a.getReportsByStatus)
 		authorizedMethods.GET("/manage_reports/:title", a.getOrbitsFromTransfer)
+		authorizedMethods.GET("/manage_reports/:title/extraction", a.getExtractionData)
+		authorizedMethods.GET("/manage_reports/async_processed", a.getAsyncProcessed)
 		authorizedMethods.PUT("/reports/change_status", a.changeStatus)
 	}
 
@@ -168,11 +170,9 @@ func (a *Application) loadHome(c *gin.Context) {
 
 func (a *Application) getAllResources(c *gin.Context) {
 	resourceName := c.Query("resourceName")
-	ocean := c.Query("resourceFromOcean")
-	vost := c.Query("resourceFromVost")
-	vlazh := c.Query("resourceFromVlazh")
+	highDemand := c.Query("highDemand")
 
-	allOrbits, err := a.repo.GetAllResourcesNative(resourceName, ocean, vost, vlazh)
+	allOrbits, err := a.repo.GetAllResourcesNative(resourceName, highDemand)
 
 	if err != nil {
 		c.AbortWithError(http.StatusBadRequest, err)
@@ -192,7 +192,7 @@ func (a *Application) getAllResources(c *gin.Context) {
 // @Router /home/{title} [get]
 func (a *Application) loadPage(c *gin.Context) {
 	resource_name := c.Param("title")
-
+	log.Println(resource_name)
 	if resource_name == "favicon.ico" {
 		return
 	}
@@ -218,6 +218,9 @@ func (a *Application) loadPage(c *gin.Context) {
 		"ResourceName": resource.ResourceName,
 		"Image":        resource.Image,
 		"IsAvailable":  resource.IsAvailable,
+		"Density":      resource.Density,
+		"Demand":       resource.Demand,
+		"IsToxic":      resource.IsToxic,
 		"Desc":         resource.Description,
 	})
 
@@ -260,7 +263,8 @@ func (a *Application) addResource(c *gin.Context) {
 	}
 
 	if res == true {
-		err := a.repo.AddResource(requestBody.ResourceName, requestBody.Image, requestBody.Desc)
+		log.Println("1")
+		err := a.repo.AddResource(requestBody.ResourceName, requestBody.Image, requestBody.Desc, requestBody.Density, requestBody.Demand, requestBody.IsToxic)
 		log.Println(requestBody.ResourceName, " is added")
 
 		if err != nil {
@@ -270,8 +274,12 @@ func (a *Application) addResource(c *gin.Context) {
 
 		c.JSON(http.StatusOK, gin.H{
 			"ResourceName": requestBody.ResourceName,
-			"Place":        requestBody.Place,
+			"IsAvailable":  true,
+			"Density":      requestBody.Density,
+			"IsToxic":      requestBody.IsToxic,
+			"Demand":       requestBody.Demand,
 			"Image":        requestBody.Image,
+			"Desc":         requestBody.Desc,
 		})
 	} else {
 		c.JSON(http.StatusOK, gin.H{
@@ -311,7 +319,7 @@ func (a *Application) deleteResource(c *gin.Context) {
 // @Router /home/{title}/edit_resource [put]
 func (a *Application) editResource(c *gin.Context) {
 	resource_name := c.Param("title")
-	resources, err := a.repo.GetResourcesByName(resource_name)
+	resource, err := a.repo.GetResourceByName(resource_name)
 
 	var editingResource ds.Resources
 
@@ -319,7 +327,7 @@ func (a *Application) editResource(c *gin.Context) {
 		c.Error(err)
 	}
 
-	err = a.repo.EditResource(resources[0].ResourceName, editingResource)
+	err = a.repo.EditResource(resource.ResourceName, editingResource)
 
 	if err != nil {
 		c.Error(err)
@@ -331,6 +339,9 @@ func (a *Application) editResource(c *gin.Context) {
 		"NewIsAvailable": editingResource.IsAvailable,
 		"NewImage":       editingResource.Image,
 		"NewDesc":        editingResource.Description,
+		"NewDemand":      editingResource.Demand,
+		"NewDensity":     editingResource.Density,
+		"NewIsToxic":     editingResource.IsToxic,
 	})
 }
 
@@ -474,10 +485,10 @@ func (a *Application) setRequestOrbits(c *gin.Context) {
 
 	err := a.repo.SetRequestOrbits(requestBody.ReportID, requestBody.Resources)
 	if err != nil {
-		c.String(http.StatusInternalServerError, "Не получилось задать регионы для заявки\n"+err.Error())
+		c.String(http.StatusInternalServerError, "Не получилось задать ресурсы для заявки\n"+err.Error())
 	}
 
-	c.String(http.StatusCreated, "Регионы заявки успешно заданы!")
+	c.String(http.StatusCreated, "Ресурсы в заявке успешно заданы!")
 
 }
 
@@ -494,7 +505,7 @@ func (a *Application) getAllReports(c *gin.Context) {
 	//	panic(exists)
 	//}
 
-	requests, err := a.repo.GetAllRequests(userRole, dateStart, dateFin)
+	requests, _, err := a.repo.GetAllRequests(userRole, dateStart, dateFin)
 
 	if err != nil {
 		c.Error(err)
@@ -565,15 +576,22 @@ func (a *Application) getDetailedReport(c *gin.Context) {
 }
 
 func (a *Application) deleteSingleFromMM(c *gin.Context) {
-	var requestBody ds.ManageReports
+	var requestBody ds.DeletSingleFromMMBody
 
 	if err := c.BindJSON(&requestBody); err != nil {
 		c.Error(err)
 		c.String(http.StatusBadRequest, "Bad Request")
 		return
 	}
-
-	err1, err2 := a.repo.DeleteOneResourceFromMM(requestBody.ReportRef, requestBody.ResourceRef)
+	resource, err3 := a.repo.GetResourceByName(requestBody.ResourceName)
+	if err3 != nil {
+		return
+	}
+	parsedReqID, err4 := strconv.ParseUint(requestBody.RequestID, 10, 64)
+	if err4 != nil {
+		return
+	}
+	err1, err2 := a.repo.DeleteOneResourceFromMM(uint(parsedReqID), resource.ID)
 
 	if err1 != nil || err2 != nil {
 		c.Error(err1)
@@ -683,6 +701,36 @@ func (a *Application) getOrbitsFromTransfer(c *gin.Context) { // нужно до
 	}
 
 	c.JSON(http.StatusOK, orbits)
+
+}
+
+func (a *Application) getExtractionData(c *gin.Context) { // нужно добавить проверку на авторизацию пользователя
+	req_id, err := strconv.Atoi(c.Param("title"))
+	if err != nil {
+		c.String(http.StatusBadRequest, "Ошибка в ID заявки")
+		return
+	}
+
+	orbits, err := a.repo.GetExtractionDataByRepID(req_id)
+	log.Println(orbits)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Ошибка при получении ресурсов из заявки")
+		return
+	}
+
+	c.JSON(http.StatusOK, orbits)
+
+}
+
+func (a *Application) getAsyncProcessed(c *gin.Context) { // нужно добавить проверку на авторизацию пользователя
+	n, err := a.repo.GetAsyncProcessedAmount()
+	log.Println("обработано", n, "записей из М-М")
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Ошибка при получении ресурсов из заявки")
+		return
+	}
+
+	c.JSON(http.StatusOK, n)
 
 }
 
