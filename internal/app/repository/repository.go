@@ -257,17 +257,29 @@ func (r *Repository) EditResource(resource_name string, editingResource ds.Resou
 
 // ---------------------------------------------------------------------------
 // --------------------------------- REPORTS ---------------------------------
-func (r *Repository) GetAllRequests(userRole any, dateStart, dateFin string) ([]ds.ExtractionReports, int, error) {
+func (r *Repository) GetAllRequests(userRole any, username, status string) ([]ds.ExtractionReports, int, error) {
 	var null_in_async int64
 	requests := []ds.ExtractionReports{}
+	user := ds.Users{}
 	qry := r.db
+	/*
+		if dateStart != "" && dateFin != "" {
+			qry = qry.Where("date_processed BETWEEN ? AND ?", dateStart, dateFin)
+		} else if dateStart != "" {
+			qry = qry.Where("date_processed >= ?", dateStart)
+		} else if dateFin != "" {
+			qry = qry.Where("date_processed <= ?", dateFin)
+		}
+	*/
 
-	if dateStart != "" && dateFin != "" {
-		qry = qry.Where("date_processed BETWEEN ? AND ?", dateStart, dateFin)
-	} else if dateStart != "" {
-		qry = qry.Where("date_processed >= ?", dateStart)
-	} else if dateFin != "" {
-		qry = qry.Where("date_processed <= ?", dateFin)
+	err2 := r.db.Model(&ds.Users{}).Select("uuid").Where("username = ?", username).First(&user).Error
+	if err2 != nil {
+		return nil, 0, err2
+	}
+	if status != "" {
+		qry = qry.Where("status ILIKE ? AND client_ref = ?", "%"+status+"%", user.UUID)
+	} else {
+		qry = qry.Where("client_ref = ?", user.UUID)
 	}
 
 	if userRole == role.Admin {
@@ -277,7 +289,7 @@ func (r *Repository) GetAllRequests(userRole any, dateStart, dateFin string) ([]
 	}
 
 	err := qry.
-		Preload("Client").Preload("Moderator"). //данные для полей типа User: {ID, Name, IsModer)
+		Preload("Client").Preload("Moderator").
 		Order("id").
 		Find(&requests).Error
 

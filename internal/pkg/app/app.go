@@ -493,8 +493,8 @@ func (a *Application) setRequestOrbits(c *gin.Context) {
 }
 
 func (a *Application) getAllReports(c *gin.Context) {
-	dateStart := c.Query("date_start")
-	dateFin := c.Query("date_fin")
+	username := c.Query("username")
+	status := c.Query("status")
 
 	userRole, exists := c.Get("userRole")
 	if !exists {
@@ -505,7 +505,7 @@ func (a *Application) getAllReports(c *gin.Context) {
 	//	panic(exists)
 	//}
 
-	requests, _, err := a.repo.GetAllRequests(userRole, dateStart, dateFin)
+	requests, _, err := a.repo.GetAllRequests(userRole, username, status)
 
 	if err != nil {
 		c.Error(err)
