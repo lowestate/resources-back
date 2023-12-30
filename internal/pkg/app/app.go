@@ -304,9 +304,6 @@ func (a *Application) deleteResource(c *gin.Context) {
 		c.Error(err)
 		return
 	}
-
-	c.Redirect(http.StatusOK, "/home")
-	fmt.Println("redirected")
 }
 
 // @Summary Изменение данные о ресурсе
@@ -617,7 +614,7 @@ func (a *Application) deleteSingleFromMM(c *gin.Context) {
 // @Router /home/get_report/{title}/change_status [put]
 func (a *Application) changeStatus(c *gin.Context) {
 	var requestBody ds.ChangeStatusRequestBody
-
+	log.Println("привет")
 	if err := c.BindJSON(&requestBody); err != nil {
 		c.Error(err)
 		return
