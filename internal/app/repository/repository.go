@@ -79,7 +79,7 @@ func (r *Repository) GenerateHashString(s string) string {
 //-------------------------------- RESOURCES --------------------------------
 
 func (r *Repository) GetAllResourcesNative(resourceName, highDemand string) ([]ds.Resources, error) {
-	orbits := []ds.Resources{}
+	resources := []ds.Resources{}
 	qry := r.db
 
 	if resourceName != "" {
@@ -92,15 +92,14 @@ func (r *Repository) GetAllResourcesNative(resourceName, highDemand string) ([]d
 
 	qry = qry.Where("is_available = ?", true)
 
-	err := qry.Order("resource_name").Find(&orbits).Error
+	err := qry.Order("resource_name").Find(&resources).Error
 
 	if err != nil {
 		return nil, err
 	}
 
-	log.Println(orbits)
-	orbits = r.UniqueResources(orbits)
-	return orbits, err
+	resources = r.UniqueResources(resources)
+	return resources, err
 }
 
 func (r *Repository) GetResourceByID(id uint) (*ds.Resources, error) {
@@ -257,36 +256,46 @@ func (r *Repository) EditResource(resource_name string, editingResource ds.Resou
 
 // ---------------------------------------------------------------------------
 // --------------------------------- REPORTS ---------------------------------
-func (r *Repository) GetAllRequests(userRole any, username, status string) ([]ds.ExtractionReports, int, error) {
+func (r *Repository) GetAllRequests(userRole any, username, status, dateStart, dateFin string) ([]ds.ExtractionReports, int, error) {
 	var null_in_async int64
+	log.Println("-------", status)
 	requests := []ds.ExtractionReports{}
 	user := ds.Users{}
+	user_search := ds.Users{}
 	qry := r.db
-	/*
-		if dateStart != "" && dateFin != "" {
-			qry = qry.Where("date_processed BETWEEN ? AND ?", dateStart, dateFin)
-		} else if dateStart != "" {
-			qry = qry.Where("date_processed >= ?", dateStart)
-		} else if dateFin != "" {
-			qry = qry.Where("date_processed <= ?", dateFin)
-		}
-	*/
+	if dateStart != "" && dateFin != "" {
+		qry = qry.Where("date_processed BETWEEN ? AND ?", dateStart, dateFin)
+	} else if dateStart != "" {
+		qry = qry.Where("date_processed >= ?", dateStart)
+	} else if dateFin != "" {
+		qry = qry.Where("date_processed <= ?", dateFin)
+	}
 
 	err2 := r.db.Model(&ds.Users{}).Select("uuid").Where("username = ?", username).First(&user).Error
 	if err2 != nil {
 		return nil, 0, err2
 	}
-	if status != "" {
+	if userRole == role.User && slices.Contains(ds.ReqStatuses, status) { // когда юзеру прогружаются его заявки
 		qry = qry.Where("status ILIKE ? AND client_ref = ?", "%"+status+"%", user.UUID)
+	} else if userRole == role.Admin && status == "" { // когда админу просто прогружаются заявки
+		log.Println("---------------- ЭТО АДМИН")
+		qry = qry.Where("status = ? AND moderator_ref = ?", ds.ReqStatuses[1], user.UUID)
+	} else if userRole == role.Admin && status != "" { // когда админ ищет по клиенту (клиент вместо статуса)
+		err3 := r.db.Model(&ds.Users{}).Select("uuid").Where("username = ?", status).First(&user_search).Error
+		if err3 != nil {
+			return nil, 0, err3
+		}
+		qry = qry.Where("client_ref = ? AND moderator_ref = ? AND status = ?", user_search.UUID, user.UUID, ds.ReqStatuses[1])
 	} else {
 		qry = qry.Where("client_ref = ?", user.UUID)
 	}
-
-	if userRole == role.Admin {
-		qry = qry.Where("status = ?", ds.ReqStatuses[1])
-	} else {
-		qry = qry.Where("status IN ?", ds.ReqStatuses)
-	}
+	/*
+		if userRole == role.Admin {
+			log.Println("---------------- ЭТО АДМИН")
+			qry = qry.Where("status = ? AND moderator_ref = ?", ds.ReqStatuses[1], user.UUID)
+		} else {
+			qry = qry.Where("status IN ?", ds.ReqStatuses)
+		}*/
 
 	err := qry.
 		Preload("Client").Preload("Moderator").
@@ -335,7 +344,7 @@ func (r *Repository) GetCurrentReport(client_refer uuid.UUID) (*ds.ExtractionRep
 
 // здесь передается место, по которому нас интересует отчет
 // далее получаются все ресурсы, которые в этом месте добываются
-func (r *Repository) CreateTransferRequest(client_id uuid.UUID) (*ds.ExtractionReports, error) {
+func (r *Repository) CreateExtractionReport(client_id uuid.UUID) (*ds.ExtractionReports, error) {
 	request, err := r.GetCurrentReport(client_id)
 	if err != nil {
 		log.Println("NO OPENED REQUESTS => CREATING NEW ONE")
@@ -354,7 +363,7 @@ func (r *Repository) CreateTransferRequest(client_id uuid.UUID) (*ds.ExtractionR
 		client := ds.Users{UUID: client_id}
 		moder := ds.Users{UUID: moder_refer}
 
-		NewTransferRequest := &ds.ExtractionReports{
+		NewExtractionReport := &ds.ExtractionReports{
 			ID:            uint(len([]ds.ExtractionReports{})),
 			ClientRef:     client_id,
 			Client:        client,
@@ -365,19 +374,19 @@ func (r *Repository) CreateTransferRequest(client_id uuid.UUID) (*ds.ExtractionR
 			DateProcessed: nil,
 			DateFinished:  nil,
 		}
-		return NewTransferRequest, r.db.Create(NewTransferRequest).Error
+		return NewExtractionReport, r.db.Create(NewExtractionReport).Error
 	}
 	return request, nil
 }
-func (r *Repository) AddReportToMM(orbit_refer, request_refer uint) error {
-	orbit := ds.Resources{ID: orbit_refer}
+func (r *Repository) AddReportToMM(resource_refer, request_refer uint) error {
+	resource := ds.Resources{ID: resource_refer}
 	request := ds.ExtractionReports{ID: request_refer}
 
-	err := r.db.Where("report_ref = ?", request_refer).Where("resource_ref = ?", orbit_refer).First(&ds.ManageReports{}).Error
+	err := r.db.Where("report_ref = ?", request_refer).Where("resource_ref = ?", resource_refer).First(&ds.ManageReports{}).Error
 	if err != nil {
 		NewMtM := &ds.ManageReports{
-			IdResource:  orbit,
-			ResourceRef: orbit_refer,
+			IdResource:  resource,
+			ResourceRef: resource_refer,
 			IdReport:    request,
 			ReportRef:   request_refer,
 		}
@@ -386,48 +395,48 @@ func (r *Repository) AddReportToMM(orbit_refer, request_refer uint) error {
 		return err
 	}
 }
-func (r *Repository) SetRequestOrbits(transferID int, orbits []string) error {
-	var orbit_ids []int
-	log.Println(transferID, " - ", orbits)
-	for _, orbit_name := range orbits {
-		log.Println(orbit_name)
-		orbit, err := r.GetResourceByName(orbit_name)
-		log.Println("orbit: ", orbit)
+func (r *Repository) SetReportResources(reportID int, resources []string) error {
+	var resource_ids []int
+	log.Println(reportID, " - ", resources)
+	for _, resource_name := range resources {
+		log.Println(resource_name)
+		resource, err := r.GetResourceByName(resource_name)
+		log.Println("resource: ", resource)
 		if err != nil {
 			return err
 		}
 
-		for _, ele := range orbit_ids {
-			if ele == int(orbit.ID) {
+		for _, ele := range resource_ids {
+			if ele == int(resource.ID) {
 				log.Println("!!!")
 				continue
 			}
 		}
-		log.Println("BEFORE :", orbit_ids)
-		orbit_ids = append(orbit_ids, int(orbit.ID))
-		log.Println("AFTER :", orbit_ids)
+		log.Println("BEFORE :", resource_ids)
+		resource_ids = append(resource_ids, int(resource.ID))
+		log.Println("AFTER :", resource_ids)
 	}
 
 	var existing_links []ds.ManageReports
-	err := r.db.Model(&ds.ManageReports{}).Where("report_ref = ?", transferID).Find(&existing_links).Error
+	err := r.db.Model(&ds.ManageReports{}).Where("report_ref = ?", reportID).Find(&existing_links).Error
 	if err != nil {
 		return err
 	}
 	log.Println("LINKS: ", existing_links)
 	for _, link := range existing_links {
-		orbitFound := false
-		orbitIndex := -1
-		for index, ele := range orbit_ids {
+		resourceFound := false
+		resourceIndex := -1
+		for index, ele := range resource_ids {
 			if ele == int(link.ResourceRef) {
-				orbitFound = true
-				orbitIndex = index
+				resourceFound = true
+				resourceIndex = index
 				break
 			}
 		}
-		log.Println("ORB F: ", orbitFound)
-		if orbitFound {
+		log.Println("ORB F: ", resourceFound)
+		if resourceFound {
 			log.Println("APPEND: ")
-			orbit_ids = append(orbit_ids[:orbitIndex], orbit_ids[orbitIndex+1:]...)
+			resource_ids = append(resource_ids[:resourceIndex], resource_ids[resourceIndex+1:]...)
 		} else {
 			log.Println("DELETE: ")
 			err := r.db.Model(&ds.ManageReports{}).Delete(&link).Error
@@ -437,10 +446,10 @@ func (r *Repository) SetRequestOrbits(transferID int, orbits []string) error {
 		}
 	}
 
-	for _, orbit_id := range orbit_ids {
+	for _, resource_id := range resource_ids {
 		newLink := ds.ManageReports{
-			ReportRef:   uint(transferID),
-			ResourceRef: uint(orbit_id),
+			ReportRef:   uint(reportID),
+			ResourceRef: uint(resource_id),
 		}
 		log.Println("NEW LINK", newLink.ResourceRef, " --- ", newLink.ReportRef)
 		err := r.db.Model(&ds.ManageReports{}).Create(&newLink).Error
@@ -469,11 +478,7 @@ func (r *Repository) AddReportToMM(resourceRef, reportRef uint) error {
 }
 */
 
-func (r *Repository) CreateTransferToOrbit(MM ds.ManageReports) error {
-	return r.db.Create(&MM).Error
-}
-
-func (r *Repository) GetOrbitsFromTransfer(id int) ([]ds.Resources, error) {
+func (r *Repository) GetResourcesFromReport(id int) ([]ds.Resources, error) {
 	MM := []ds.ManageReports{}
 
 	err := r.db.Model(&ds.ManageReports{}).Where("report_ref = ?", id).Find(&MM).Error
@@ -481,21 +486,21 @@ func (r *Repository) GetOrbitsFromTransfer(id int) ([]ds.Resources, error) {
 		return []ds.Resources{}, err
 	}
 
-	var orbits []ds.Resources
-	for _, transfer_to_orbit := range MM {
-		orbit, err := r.GetResourceByID(transfer_to_orbit.ResourceRef)
+	var resources []ds.Resources
+	for _, report_to_resource := range MM {
+		resource, err := r.GetResourceByID(report_to_resource.ResourceRef)
 		if err != nil {
 			return []ds.Resources{}, err
 		}
-		for _, ele := range orbits {
-			if ele == *orbit {
+		for _, ele := range resources {
+			if ele == *resource {
 				continue
 			}
 		}
-		orbits = append(orbits, *orbit)
+		resources = append(resources, *resource)
 	}
 
-	return orbits, nil
+	return resources, nil
 
 }
 
@@ -726,4 +731,21 @@ func extractObjectNameFromURL(imageURL string) string {
 	parts := strings.Split(imageURL, "/")
 	log.Println("\n\nIMG:   ", parts[len(parts)-1])
 	return parts[len(parts)-1]
+}
+
+func (r *Repository) GetUsernameByUUID(id string) (string, error) {
+	// Validate the UUID
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return "", err
+	}
+
+	user := &ds.Users{}
+
+	err = r.db.First(user, "uuid = ?", uid.String()).Error
+	if err != nil {
+		return "", err
+	}
+
+	return user.Username, nil
 }

@@ -79,40 +79,40 @@ func (a *Application) StartServer() {
 	// доступ имеет только user
 	//a.r.Use(a.WithAuthCheck(role.User)).GET("/ping", a.ping)
 	a.r.GET("/resources", a.getAllResources)
-	a.r.GET("/resources/:title", a.loadPage)
+	a.r.GET("/resources/:resource_name", a.loadPage)
 
 	a.r.POST("/async/:report_ref/:resource_ref", a.asyncInsertFact)
 
 	clientMethods := a.r.Group("", a.WithAuthCheck(role.User))
 	{
 		//актуальное создание заявки + добавление в м-м
-		clientMethods.POST("/reports/:title/add", a.addResourceToReport)
+		clientMethods.POST("/resources/:resource_name/add", a.addResourceToReport)
 
 		//актуальное обновление записей в м-м
 
-		clientMethods.POST("/reports/:title/delete", a.deleteReport)
-		clientMethods.PUT("/reports/:title/add_data", a.addDataToReport)
+		clientMethods.POST("/reports/:report_id/delete", a.deleteReport)
+		clientMethods.PUT("/reports/:report_id/add_data", a.addDataToReport)
 		clientMethods.DELETE("/manage_reports/delete_single", a.deleteSingleFromMM)
 		clientMethods.PUT("/manage_reports/add_plan", a.addPlanToMM)
-
 	}
 
 	moderMethods := a.r.Group("", a.WithAuthCheck(role.Admin))
 	{
-		moderMethods.PUT("/resources/:title/edit", a.editResource)
-		moderMethods.POST("/resources/new_resource", a.addResource)
-		moderMethods.DELETE("/resources/change_status/:title", a.deleteResource)
+		moderMethods.PUT("/resources/:resource_name/edit", a.editResource)
+		moderMethods.POST("/resources/new", a.addResource)
+		moderMethods.DELETE("/resources/change_status/:resource_name", a.deleteResource)
 		moderMethods.GET("/ping", a.ping)
+		moderMethods.GET("/users/:uuid", a.getUser)
 	}
 
 	authorizedMethods := a.r.Group("", a.WithAuthCheck(role.User, role.Admin))
 	{
-		authorizedMethods.PUT("/reports/set_resources", a.setRequestOrbits)
+		authorizedMethods.PUT("/reports/set_resources", a.setReportResources)
 		authorizedMethods.GET("/reports", a.getAllReports)
-		authorizedMethods.GET("/reports/:title", a.getDetailedReport)
+		authorizedMethods.GET("/reports/:report_id", a.getDetailedReport)
 		authorizedMethods.GET("/reports/status/:status", a.getReportsByStatus)
-		authorizedMethods.GET("/manage_reports/:title", a.getOrbitsFromTransfer)
-		authorizedMethods.GET("/manage_reports/:title/extraction", a.getExtractionData)
+		authorizedMethods.GET("/manage_reports/:report_id", a.getResourcesFromReport)
+		authorizedMethods.GET("/manage_reports/:report_id/extraction", a.getExtractionData)
 		authorizedMethods.GET("/manage_reports/async_processed", a.getAsyncProcessed)
 		authorizedMethods.PUT("/reports/change_status", a.changeStatus)
 	}
@@ -148,6 +148,7 @@ func (a *Application) asyncInsertFact(c *gin.Context) {
 // @Param title query string false "Название ресурса для поиска"
 // @Success 200 {object} map[string]interface{}
 // @Router /home [get]
+/*
 func (a *Application) loadHome(c *gin.Context) {
 	title := c.Query("title") // для поиска
 
@@ -165,21 +166,21 @@ func (a *Application) loadHome(c *gin.Context) {
 		"materials": allRes,
 	})
 
-	*/
-}
+
+} */
 
 func (a *Application) getAllResources(c *gin.Context) {
 	resourceName := c.Query("resourceName")
 	highDemand := c.Query("highDemand")
 
-	allOrbits, err := a.repo.GetAllResourcesNative(resourceName, highDemand)
+	allRes, err := a.repo.GetAllResourcesNative(resourceName, highDemand)
 
 	if err != nil {
 		c.AbortWithError(http.StatusBadRequest, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, allOrbits)
+	c.JSON(http.StatusOK, allRes)
 }
 
 // @Summary Загрузка страницы ресурса
@@ -191,7 +192,7 @@ func (a *Application) getAllResources(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /home/{title} [get]
 func (a *Application) loadPage(c *gin.Context) {
-	resource_name := c.Param("title")
+	resource_name := c.Param("resource_name")
 	log.Println(resource_name)
 	if resource_name == "favicon.ico" {
 		return
@@ -298,7 +299,7 @@ func (a *Application) addResource(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /home/delete_resource/{title} [post]
 func (a *Application) deleteResource(c *gin.Context) {
-	resource_name := c.Param("title")
+	resource_name := c.Param("resource_name")
 	err := a.repo.ChangeAvailability(resource_name)
 	if err != nil {
 		c.Error(err)
@@ -315,7 +316,7 @@ func (a *Application) deleteResource(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /home/{title}/edit_resource [put]
 func (a *Application) editResource(c *gin.Context) {
-	resource_name := c.Param("title")
+	resource_name := c.Param("resource_name")
 	resource, err := a.repo.GetResourceByName(resource_name)
 
 	var editingResource ds.Resources
@@ -406,10 +407,10 @@ func (a *Application) addMonthlyProd(c *gin.Context) {
 // @Router /home/{title}/add_report [post]
 /*
 func (a *Application) addResourceToReport(c *gin.Context) {
-	orbit_name := c.Param("title")
+	resource_name := c.Param("title")
 
-	// Получение инфы об орбите -> orbit.ID
-	orbit, err := a.repo.GetResourceByName(orbit_name)
+	// Получение инфы об орбите -> resource.ID
+	resource, err := a.repo.GetResourceByName(resource_name)
 	if err != nil {
 		c.Error(err)
 		return
@@ -427,7 +428,7 @@ func (a *Application) addResourceToReport(c *gin.Context) {
 		return
 	}
 
-	err = a.repo.AddReportToMM(orbit.ID, request.ID)
+	err = a.repo.AddReportToMM(resource.ID, request.ID)
 	if err != nil {
 		c.Error(err)
 		return
@@ -435,7 +436,7 @@ func (a *Application) addResourceToReport(c *gin.Context) {
 }
 */
 func (a *Application) addResourceToReport(c *gin.Context) {
-	orbit_name := c.Param("title")
+	resource_name := c.Param("resource_name")
 
 	request_body := &ds.CreateReportBody{}
 	if err := c.BindJSON(&request_body); err != nil {
@@ -444,8 +445,8 @@ func (a *Application) addResourceToReport(c *gin.Context) {
 	}
 	log.Println(request_body)
 
-	// Получение инфы об орбите -> orbit.ID
-	orbit, err := a.repo.GetResourceByName(orbit_name)
+	// Получение инфы об орбите -> resource.ID
+	resource, err := a.repo.GetResourceByName(resource_name)
 	if err != nil {
 		c.Error(err)
 		return
@@ -457,13 +458,13 @@ func (a *Application) addResourceToReport(c *gin.Context) {
 	}
 
 	request := &ds.ExtractionReports{}
-	request, err = a.repo.CreateTransferRequest(userUUID.(uuid.UUID))
+	request, err = a.repo.CreateExtractionReport(userUUID.(uuid.UUID))
 	if err != nil {
 		c.Error(err)
 		return
 	}
 
-	err = a.repo.AddReportToMM(orbit.ID, request.ID)
+	err = a.repo.AddReportToMM(resource.ID, request.ID)
 	if err != nil {
 		c.Error(err)
 		return
@@ -472,7 +473,7 @@ func (a *Application) addResourceToReport(c *gin.Context) {
 	c.JSON(http.StatusOK, request.ID)
 }
 
-func (a *Application) setRequestOrbits(c *gin.Context) {
+func (a *Application) setReportResources(c *gin.Context) {
 	var requestBody ds.SetReportResourcesBody
 
 	if err := c.BindJSON(&requestBody); err != nil {
@@ -480,7 +481,7 @@ func (a *Application) setRequestOrbits(c *gin.Context) {
 		return
 	}
 
-	err := a.repo.SetRequestOrbits(requestBody.ReportID, requestBody.Resources)
+	err := a.repo.SetReportResources(requestBody.ReportID, requestBody.Resources)
 	if err != nil {
 		c.String(http.StatusInternalServerError, "Не получилось задать ресурсы для заявки\n"+err.Error())
 	}
@@ -492,6 +493,8 @@ func (a *Application) setRequestOrbits(c *gin.Context) {
 func (a *Application) getAllReports(c *gin.Context) {
 	username := c.Query("username")
 	status := c.Query("status")
+	dateStart := c.Query("date_start")
+	dateEnd := c.Query("date_end")
 
 	userRole, exists := c.Get("userRole")
 	if !exists {
@@ -502,7 +505,7 @@ func (a *Application) getAllReports(c *gin.Context) {
 	//	panic(exists)
 	//}
 
-	requests, _, err := a.repo.GetAllRequests(userRole, username, status)
+	requests, _, err := a.repo.GetAllRequests(userRole, username, status, dateStart, dateEnd)
 
 	if err != nil {
 		c.Error(err)
@@ -548,7 +551,7 @@ func (a *Application) getReportsByStatus(c *gin.Context) {
 }
 
 func (a *Application) getDetailedReport(c *gin.Context) {
-	req_id, err := strconv.Atoi(c.Param("title"))
+	req_id, err := strconv.Atoi(c.Param("report_id"))
 	if err != nil {
 		log.Println("REQ ID: ", req_id)
 		panic(err)
@@ -683,39 +686,38 @@ func (a *Application) changeStatus(c *gin.Context) {
 	}
 }
 
-func (a *Application) getOrbitsFromTransfer(c *gin.Context) { // нужно добавить проверку на авторизацию пользователя
-	req_id, err := strconv.Atoi(c.Param("title"))
+func (a *Application) getResourcesFromReport(c *gin.Context) { // нужно добавить проверку на авторизацию пользователя
+	req_id, err := strconv.Atoi(c.Param("report_id"))
 	if err != nil {
 		c.String(http.StatusBadRequest, "Ошибка в ID заявки")
 		return
 	}
 
-	orbits, err := a.repo.GetOrbitsFromTransfer(req_id)
-	log.Println(orbits)
+	resources, err := a.repo.GetResourcesFromReport(req_id)
 	if err != nil {
 		c.String(http.StatusInternalServerError, "Ошибка при получении ресурсов из заявки")
 		return
 	}
 
-	c.JSON(http.StatusOK, orbits)
+	c.JSON(http.StatusOK, resources)
 
 }
 
 func (a *Application) getExtractionData(c *gin.Context) { // нужно добавить проверку на авторизацию пользователя
-	req_id, err := strconv.Atoi(c.Param("title"))
+	req_id, err := strconv.Atoi(c.Param("report_id"))
 	if err != nil {
 		c.String(http.StatusBadRequest, "Ошибка в ID заявки")
 		return
 	}
 
-	orbits, err := a.repo.GetExtractionDataByRepID(req_id)
-	log.Println(orbits)
+	resources, err := a.repo.GetExtractionDataByRepID(req_id)
+
 	if err != nil {
 		c.String(http.StatusInternalServerError, "Ошибка при получении ресурсов из заявки")
 		return
 	}
 
-	c.JSON(http.StatusOK, orbits)
+	c.JSON(http.StatusOK, resources)
 
 }
 
@@ -1009,4 +1011,16 @@ func (a *Application) logout(c *gin.Context) {
 	}
 
 	c.Status(http.StatusOK)
+}
+
+func (a *Application) getUser(c *gin.Context) {
+	user_uuid := c.Param("uuid")
+	username, err := a.repo.GetUsernameByUUID(user_uuid)
+
+	if err != nil {
+		c.AbortWithError(http.StatusBadRequest, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, username)
 }
