@@ -4,9 +4,11 @@ import (
 	"ResourceExtraction/internal/app/ds"
 	mClient "ResourceExtraction/internal/app/minio"
 	"ResourceExtraction/internal/app/role"
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
@@ -14,6 +16,7 @@ import (
 	"gorm.io/gorm"
 	"log"
 	"math/rand"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -46,6 +49,20 @@ func firstLetterToHigher(s string) string {
 	return strings.Join(words, " ")
 }
 
+func removeDuplicates(slice []string) []string {
+	uniqueValuesMap := make(map[string]bool)
+	var uniqueValues []string
+
+	for _, value := range slice {
+		if _, exists := uniqueValuesMap[value]; !exists {
+			uniqueValuesMap[value] = true
+			uniqueValues = append(uniqueValues, value)
+		}
+	}
+
+	return uniqueValues
+}
+
 func generateUniqueObjectName() string {
 	// Ваш код для генерации уникального имени объекта, например, использование UUID
 	// Пример: можно использовать github.com/google/uuid
@@ -60,6 +77,30 @@ func (r *Repository) GenerateHashString(s string) string {
 
 //---------------------------------------------------------------------------
 //-------------------------------- RESOURCES --------------------------------
+
+func (r *Repository) GetAllResourcesNative(resourceName, highDemand string) ([]ds.Resources, error) {
+	resources := []ds.Resources{}
+	qry := r.db
+
+	if resourceName != "" {
+		qry = qry.Where("resource_name ILIKE ?", "%"+resourceName+"%")
+	}
+
+	if highDemand != "" {
+		qry = qry.Where("demand > 6")
+	}
+
+	qry = qry.Where("is_available = ?", true)
+
+	err := qry.Order("resource_name").Find(&resources).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	resources = r.UniqueResources(resources)
+	return resources, err
+}
 
 func (r *Repository) GetResourceByID(id uint) (*ds.Resources, error) {
 	resource := &ds.Resources{}
@@ -87,19 +128,21 @@ func (r *Repository) ChangeAvailability(resName string) error {
 	return err
 }
 
-func (r *Repository) AddResource(resName string, place, imagePath string) error {
+func (r *Repository) AddResource(resName, imagePath, desc string, density float64, demand int8, is_toxic bool) error {
 	image_placeholder := "http://127.0.0.1:9000/pc-bucket/placeholder.jpg"
 	if imagePath == "" {
 		imagePath = image_placeholder
 	}
+	log.Println(resName)
 	return r.db.Create(&ds.Resources{
 		uint(len([]ds.Resources{})),
 		resName,
 		true,
-		"",
-		0,
-		place,
-		imagePath}).Error
+		density,
+		is_toxic,
+		demand,
+		imagePath,
+		desc}).Error
 }
 
 func (r *Repository) GetAllResources(title string) ([]ds.Resources, error) {
@@ -211,43 +254,15 @@ func (r *Repository) EditResource(resource_name string, editingResource ds.Resou
 	return r.db.Model(&ds.Resources{}).Where("resource_name = ?", resource_name).Updates(editingResource).Error
 }
 
-func (r *Repository) AddMonthlyProd(resName, place, month string, monthlyProd float64) error {
-	/*
-		resources, _ := r.GetAllResources()
-		for x := range resources {
-			if resources[x].ResourceName == resName && resources[x].Place == place {
-				return r.db.Model(&ds.Resources{}).Where(
-					"resource_name = ?", resName).Where("place = ?", place).Update(
-					"monthly_production", monthlyProd).Update("month", month).Error
-			}
-		}
-	*/
-	var editingResource ds.Resources
-	resource, err := r.GetResourceByName(resName)
-	// если такой ресурс уже есть, но без сведения о добыче хотя бы за один месяц - изменяем существующую запись
-	if resource.MonthlyProduction == 0 && resource.Month == "" && err == nil {
-		editingResource.Month = month
-		editingResource.MonthlyProduction = monthlyProd
-		return r.db.Model(&ds.Resources{}).Where("resource_name = ?", resName).Updates(editingResource).Error
-	}
-	// если же записи о месячной добыче у этого ресурса нет - создаем новую запись
-	return r.db.Create(&ds.Resources{
-		uint(len([]ds.Resources{})),
-		resName,
-		true,
-		month,
-		monthlyProd,
-		place,
-		"http://127.0.0.1:9000/pc-bucket/placeholder.jpg"}).Error
-}
-
 // ---------------------------------------------------------------------------
 // --------------------------------- REPORTS ---------------------------------
-func (r *Repository) GetAllRequests(userRole any, dateStart, dateFin string) ([]ds.ExtractionReports, error) {
-
+func (r *Repository) GetAllRequests(userRole any, username, status, dateStart, dateFin string) ([]ds.ExtractionReports, int, error) {
+	var null_in_async int64
+	log.Println("-------", status)
 	requests := []ds.ExtractionReports{}
+	user := ds.Users{}
+	user_search := ds.Users{}
 	qry := r.db
-
 	if dateStart != "" && dateFin != "" {
 		qry = qry.Where("date_processed BETWEEN ? AND ?", dateStart, dateFin)
 	} else if dateStart != "" {
@@ -256,22 +271,48 @@ func (r *Repository) GetAllRequests(userRole any, dateStart, dateFin string) ([]
 		qry = qry.Where("date_processed <= ?", dateFin)
 	}
 
-	if userRole == role.Admin {
-		qry = qry.Where("status = ?", ds.ReqStatuses[1])
-	} else {
-		qry = qry.Where("status IN ?", ds.ReqStatuses)
+	err2 := r.db.Model(&ds.Users{}).Select("uuid").Where("username = ?", username).First(&user).Error
+	if err2 != nil {
+		return nil, 0, err2
 	}
+	if userRole == role.User && slices.Contains(ds.ReqStatuses, status) { // когда юзеру прогружаются его заявки
+		qry = qry.Where("status ILIKE ? AND client_ref = ?", "%"+status+"%", user.UUID)
+	} else if userRole == role.Admin && status == "" { // когда админу просто прогружаются заявки
+		log.Println("---------------- ЭТО АДМИН")
+		qry = qry.Where("status = ? AND moderator_ref = ?", ds.ReqStatuses[1], user.UUID)
+	} else if userRole == role.Admin && status != "" { // когда админ ищет по клиенту (клиент вместо статуса)
+		err3 := r.db.Model(&ds.Users{}).Select("uuid").Where("username = ?", status).First(&user_search).Error
+		if err3 != nil {
+			return nil, 0, err3
+		}
+		qry = qry.Where("client_ref = ? AND moderator_ref = ? AND status = ?", user_search.UUID, user.UUID, ds.ReqStatuses[1])
+	} else {
+		qry = qry.Where("client_ref = ?", user.UUID)
+	}
+	/*
+		if userRole == role.Admin {
+			log.Println("---------------- ЭТО АДМИН")
+			qry = qry.Where("status = ? AND moderator_ref = ?", ds.ReqStatuses[1], user.UUID)
+		} else {
+			qry = qry.Where("status IN ?", ds.ReqStatuses)
+		}*/
 
 	err := qry.
-		Preload("Client").Preload("Moderator"). //данные для полей типа User: {ID, Name, IsModer)
+		Preload("Client").Preload("Moderator").
 		Order("id").
 		Find(&requests).Error
 
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return requests, nil
+	err1 := r.db.Model(&ds.ManageReports{}).Where("fact = 0").Count(&null_in_async).Error
+
+	if err1 != nil {
+		return nil, 0, err1
+	}
+
+	return requests, int(null_in_async), nil
 }
 
 func (r *Repository) GetReportsByStatus(status string) ([]ds.ExtractionReports, error) {
@@ -301,39 +342,30 @@ func (r *Repository) GetCurrentReport(client_refer uuid.UUID) (*ds.ExtractionRep
 	return request, nil
 }
 
-func (r *Repository) CreateTransferRequest(requestBody ds.CreateReportBody, userUUID uuid.UUID) error {
-	var orbit_ids []int
-	var orbit_names []string
-	for _, orbitName := range requestBody.Resources {
-		orbit, err := r.GetResourceByName(orbitName)
-		if err != nil {
-			return err
-		}
-		orbit_ids = append(orbit_ids, int(orbit.ID))
-		orbit_names = append(orbit_names, orbit.ResourceName)
-	}
-
-	request, err := r.GetCurrentReport(userUUID)
+// здесь передается место, по которому нас интересует отчет
+// далее получаются все ресурсы, которые в этом месте добываются
+func (r *Repository) CreateExtractionReport(client_id uuid.UUID) (*ds.ExtractionReports, error) {
+	request, err := r.GetCurrentReport(client_id)
 	if err != nil {
-		log.Println(" --- NEW REQUEST --- ", userUUID)
+		log.Println("NO OPENED REQUESTS => CREATING NEW ONE")
 
 		//назначение модератора
 		moders := []ds.Users{}
 		err = r.db.Where("role = ?", 1).Find(&moders).Error
 		if err != nil {
-			return err
+			return nil, err
 		}
 		n := rand.Int() % len(moders)
 		moder_refer := moders[n].UUID
 		log.Println("moder: ", moder_refer)
 
 		//поля типа Users, связанные с передавыемыми значениями из функции
-		client := ds.Users{UUID: userUUID}
+		client := ds.Users{UUID: client_id}
 		moder := ds.Users{UUID: moder_refer}
 
-		request = &ds.ExtractionReports{
+		NewExtractionReport := &ds.ExtractionReports{
 			ID:            uint(len([]ds.ExtractionReports{})),
-			ClientRef:     userUUID,
+			ClientRef:     client_id,
 			Client:        client,
 			ModeratorRef:  moder_refer,
 			Moderator:     moder,
@@ -342,74 +374,69 @@ func (r *Repository) CreateTransferRequest(requestBody ds.CreateReportBody, user
 			DateProcessed: nil,
 			DateFinished:  nil,
 		}
-
-		err := r.db.Create(request).Error
-		if err != nil {
-			return err
-		}
+		return NewExtractionReport, r.db.Create(NewExtractionReport).Error
 	}
+	return request, nil
+}
+func (r *Repository) AddReportToMM(resource_refer, request_refer uint) error {
+	resource := ds.Resources{ID: resource_refer}
+	request := ds.ExtractionReports{ID: request_refer}
 
-	err = r.SetRequestOrbits(int(request.ID), orbit_names)
+	err := r.db.Where("report_ref = ?", request_refer).Where("resource_ref = ?", resource_refer).First(&ds.ManageReports{}).Error
 	if err != nil {
+		NewMtM := &ds.ManageReports{
+			IdResource:  resource,
+			ResourceRef: resource_refer,
+			IdReport:    request,
+			ReportRef:   request_refer,
+		}
+		return r.db.Create(NewMtM).Error
+	} else {
 		return err
 	}
-
-	//for _, orbit_id := range orbit_ids {
-	//	transfer_to_orbit := ds.TransferToOrbit{}
-	//	transfer_to_orbit.RequestRefer = request.ID
-	//	transfer_to_orbit.OrbitRefer = uint(orbit_id)
-	//	err = r.CreateTransferToOrbit(transfer_to_orbit)
-	//
-	//	if err != nil {
-	//		return err
-	//	}
-	//}
-
-	return nil
-
 }
-
-func (r *Repository) SetRequestOrbits(transferID int, orbits []string) error {
-	var orbit_ids []int
-	log.Println(transferID, " - ", orbits)
-	for _, orbit_name := range orbits {
-		orbit, err := r.GetResourceByName(orbit_name)
-		log.Println("orbit: ", orbit)
+func (r *Repository) SetReportResources(reportID int, resources []string) error {
+	var resource_ids []int
+	log.Println(reportID, " - ", resources)
+	for _, resource_name := range resources {
+		log.Println(resource_name)
+		resource, err := r.GetResourceByName(resource_name)
+		log.Println("resource: ", resource)
 		if err != nil {
 			return err
 		}
 
-		for _, ele := range orbit_ids {
-			if ele == int(orbit.ID) {
+		for _, ele := range resource_ids {
+			if ele == int(resource.ID) {
 				log.Println("!!!")
 				continue
 			}
 		}
-		log.Println("BEFORE :", orbit_ids)
-		orbit_ids = append(orbit_ids, int(orbit.ID))
-		log.Println("AFTER :", orbit_ids)
+		log.Println("BEFORE :", resource_ids)
+		resource_ids = append(resource_ids, int(resource.ID))
+		log.Println("AFTER :", resource_ids)
 	}
 
 	var existing_links []ds.ManageReports
-	err := r.db.Model(&ds.ManageReports{}).Where("report_ref = ?", transferID).Find(&existing_links).Error
+	err := r.db.Model(&ds.ManageReports{}).Where("report_ref = ?", reportID).Find(&existing_links).Error
 	if err != nil {
 		return err
 	}
 	log.Println("LINKS: ", existing_links)
 	for _, link := range existing_links {
-		orbitFound := false
-		orbitIndex := -1
-		for index, ele := range orbit_ids {
+		resourceFound := false
+		resourceIndex := -1
+		for index, ele := range resource_ids {
 			if ele == int(link.ResourceRef) {
-				orbitFound = true
-				orbitIndex = index
+				resourceFound = true
+				resourceIndex = index
 				break
 			}
 		}
-		log.Println("ORB F: ", orbitFound)
-		if orbitFound {
+		log.Println("ORB F: ", resourceFound)
+		if resourceFound {
 			log.Println("APPEND: ")
-			orbit_ids = append(orbit_ids[:orbitIndex], orbit_ids[orbitIndex+1:]...)
+			resource_ids = append(resource_ids[:resourceIndex], resource_ids[resourceIndex+1:]...)
 		} else {
 			log.Println("DELETE: ")
 			err := r.db.Model(&ds.ManageReports{}).Delete(&link).Error
@@ -419,10 +446,10 @@ func (r *Repository) SetRequestOrbits(transferID int, orbits []string) error {
 		}
 	}
 
-	for _, orbit_id := range orbit_ids {
+	for _, resource_id := range resource_ids {
 		newLink := ds.ManageReports{
-			ReportRef:   uint(transferID),
-			ResourceRef: uint(orbit_id),
+			ReportRef:   uint(reportID),
+			ResourceRef: uint(resource_id),
 		}
 		log.Println("NEW LINK", newLink.ResourceRef, " --- ", newLink.ReportRef)
 		err := r.db.Model(&ds.ManageReports{}).Create(&newLink).Error
@@ -451,11 +478,7 @@ func (r *Repository) AddReportToMM(resourceRef, reportRef uint) error {
 }
 */
 
-func (r *Repository) CreateTransferToOrbit(MM ds.ManageReports) error {
-	return r.db.Create(&MM).Error
-}
-
-func (r *Repository) GetOrbitsFromTransfer(id int) ([]ds.Resources, error) {
+func (r *Repository) GetResourcesFromReport(id int) ([]ds.Resources, error) {
 	MM := []ds.ManageReports{}
 
 	err := r.db.Model(&ds.ManageReports{}).Where("report_ref = ?", id).Find(&MM).Error
@@ -463,22 +486,52 @@ func (r *Repository) GetOrbitsFromTransfer(id int) ([]ds.Resources, error) {
 		return []ds.Resources{}, err
 	}
 
-	var orbits []ds.Resources
-	for _, transfer_to_orbit := range MM {
-		orbit, err := r.GetResourceByID(transfer_to_orbit.ResourceRef)
+	var resources []ds.Resources
+	for _, report_to_resource := range MM {
+		resource, err := r.GetResourceByID(report_to_resource.ResourceRef)
 		if err != nil {
 			return []ds.Resources{}, err
 		}
-		for _, ele := range orbits {
-			if ele == *orbit {
+		for _, ele := range resources {
+			if ele == *resource {
 				continue
 			}
 		}
-		orbits = append(orbits, *orbit)
+		resources = append(resources, *resource)
 	}
 
-	return orbits, nil
+	return resources, nil
 
+}
+
+func (r *Repository) GetExtractionDataByRepID(id int) ([][]int, error) {
+	var reports []ds.ManageReports
+	var result [][]int
+
+	err := r.db.Model(&ds.ManageReports{}).Select("resource_ref", "plan", "fact").
+		Where("report_ref = ?", id).
+		Find(&reports).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, report := range reports {
+		result = append(result, []int{int(report.ResourceRef), int(report.Plan), int(report.Fact)})
+	}
+
+	return result, nil
+}
+
+func (r *Repository) GetAsyncProcessedAmount() (int64, error) {
+	MM := &ds.ManageReports{}
+	var count int64
+	err := r.db.Model(&MM).Where("fact != 0").Count(&count).Error
+	if err != nil {
+		return 0, err
+	}
+
+	return count, err
 }
 
 func (r *Repository) GetReportByID(id uint, userUUID uuid.UUID, userRole any) (*ds.ExtractionReports, error) {
@@ -500,7 +553,7 @@ func (r *Repository) GetReportByID(id uint, userUUID uuid.UUID, userRole any) (*
 }
 
 func (r *Repository) ChangeReportStatus(id uint, status string) error {
-	if slices.Contains(ds.ReqStatuses[2:4], status) {
+	if slices.Contains(ds.ReqStatuses[2:5], status) {
 		err := r.db.Model(&ds.ExtractionReports{}).Where("id = ?", id).Update("date_finished", time.Now()).Error
 		if err != nil {
 			return err
@@ -511,6 +564,21 @@ func (r *Repository) ChangeReportStatus(id uint, status string) error {
 		err := r.db.Model(&ds.ExtractionReports{}).Where("id = ?", id).Update("date_processed", time.Now()).Error
 		if err != nil {
 			return err
+		}
+	}
+
+	if status == "Оказана" {
+		resource_ids, err := r.GetResourcesByReportID(id)
+		if err != nil {
+			return err
+		} else {
+			for i := 0; i < int(len(resource_ids)); i++ {
+				err1 := r.SetResourcePlan(id, uint(resource_ids[i]))
+				if err1 != nil {
+					log.Println("error while inserting resource facts:", err)
+					return err1
+				}
+			}
 		}
 	}
 
@@ -526,12 +594,64 @@ func (r *Repository) ChangeReportStatus(id uint, status string) error {
 	return nil
 }
 
+func (r *Repository) SetResourcePlan(report_ref, resource_ref uint) error {
+	url := "http://127.0.0.1:4000"
+
+	authKey := "secret-async-resources"
+
+	requestBody := map[string]interface{}{"report_ref": int(report_ref), "resource_ref": int(resource_ref)}
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", authKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
+func (r *Repository) GetResourcesByReportID(report_id uint) ([]int, error) {
+	var resourceRefs []int
+
+	err := r.db.Model(&ds.ManageReports{}).Where("report_ref = ?", report_id).Pluck("resource_ref", &resourceRefs).Error
+	return resourceRefs, err
+}
+
+func (r *Repository) AddMonthPlaceToReport(report_id uint, place, month string) error {
+	log.Println("---", place, month)
+	err := r.db.Model(&ds.ExtractionReports{}).Where("id = ?", report_id).Update("month", month).Error
+	if err == nil {
+		return r.db.Model(&ds.ExtractionReports{}).Where("id = ?", report_id).Update("place", place).Error
+	} else {
+		return err
+	}
+}
+
 func (r *Repository) DeleteReport(id uint) error {
 	if r.db.Where("id = ?", id).First(&ds.ExtractionReports{}).Error != nil {
 
 		return r.db.Where("id = ?", id).First(&ds.ExtractionReports{}).Error
 	}
 	return r.db.Model(&ds.ExtractionReports{}).Where("id = ?", id).Update("status", "Удалена").Error
+}
+
+func (r *Repository) AddResourcePlanToMM(report_id, resource_id uint, plan int) error {
+	return r.db.Model(&ds.ManageReports{}).Where("report_ref = ? AND resource_ref = ?", report_id, resource_id).Update("plan", plan).Error
+}
+
+func (r *Repository) AddResourceFactToMM(report_id, resource_id uint, fact int) error {
+	return r.db.Model(&ds.ManageReports{}).Where("report_ref = ? AND resource_ref = ?", report_id, resource_id).Update("fact", fact).Error
 }
 
 func (r *Repository) DeleteOneResourceFromMM(report_id, resource_id uint) (error, error) {
@@ -611,4 +731,21 @@ func extractObjectNameFromURL(imageURL string) string {
 	parts := strings.Split(imageURL, "/")
 	log.Println("\n\nIMG:   ", parts[len(parts)-1])
 	return parts[len(parts)-1]
+}
+
+func (r *Repository) GetUsernameByUUID(id string) (string, error) {
+	// Validate the UUID
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return "", err
+	}
+
+	user := &ds.Users{}
+
+	err = r.db.First(user, "uuid = ?", uid.String()).Error
+	if err != nil {
+		return "", err
+	}
+
+	return user.Username, nil
 }

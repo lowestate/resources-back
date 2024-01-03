@@ -16,7 +16,7 @@ import (
 */
 var ReqStatuses = []string{
 	"Черновик",
-	"На рассмотрении",
+	"Сформирована",
 	"Удалена",
 	"Отклонена",
 	"Оказана",
@@ -31,13 +31,14 @@ type Users struct {
 }
 
 type Resources struct {
-	ID                uint `gorm:"primaryKey;AUTO_INCREMENT"`
-	ResourceName      string
-	IsAvailable       bool
-	Month             string
-	MonthlyProduction float64
-	Place             string
-	Image             string `gorm:"column:image"`
+	ID           uint `gorm:"primaryKey;AUTO_INCREMENT"`
+	ResourceName string
+	IsAvailable  bool
+	Density      float64
+	IsToxic      bool
+	Demand       int8
+	Image        string `gorm:"column:image"`
+	Description  string
 }
 
 type ExtractionReports struct {
@@ -50,6 +51,8 @@ type ExtractionReports struct {
 	Client        Users `gorm:"foreignKey:ClientRef;references:UUID"`
 	ModeratorRef  uuid.UUID
 	Moderator     Users `gorm:"foreignKey:ModeratorRef;references:UUID"`
+	Month         string
+	Place         string
 }
 
 type ManageReports struct {
@@ -58,13 +61,18 @@ type ManageReports struct {
 	IdReport    ExtractionReports `gorm:"foreignKey:ReportRef"`
 	ResourceRef uint
 	IdResource  Resources `gorm:"foreignKey:ResourceRef"`
+	Plan        float64
+	Fact        float64
 }
 
 // JSON PARSER
 type AddResRequestBody struct {
 	ResourceName string
-	Place        string
+	Density      float64
+	IsToxic      bool
+	Demand       int8
 	Image        string
+	Desc         string
 }
 
 type EditResNameRequestBody struct {
@@ -89,10 +97,32 @@ type ChangeStatusRequestBody struct {
 }
 
 type CreateReportBody struct {
-	Resources []string
+	Resource string
 }
 
 type SetReportResourcesBody struct {
 	ReportID  int      `json:"report_id"`
 	Resources []string `json:"resources"`
+}
+
+type AddPlanToMM struct {
+	ReportRef   uint    `json:"report_ref"`
+	ResourceRef string  `json:"resource_ref"`
+	Plan        float64 `json:"plan"`
+}
+
+type AddDataToReport struct {
+	Place string `json:"place"`
+	Month string `json:"month"`
+}
+
+type AsyncBody struct {
+	ReportID   int `json:"report_ref"`
+	ResourceID int `json:"resource_ref"`
+	Fact       int `json:"fact"`
+}
+
+type DeletSingleFromMMBody struct {
+	ResourceName string `json:"resource"`
+	RequestID    string `json:"req"`
 }
