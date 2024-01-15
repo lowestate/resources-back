@@ -16,9 +16,15 @@ func main() {
 	})
 
 	// Migrate the schema
-
-	err = db.AutoMigrate(&ds.Resources{})
+	err = db.AutoMigrate(
+		&ds.Statuses{},
+		&ds.Users{},
+		&ds.Resources{},
+		&ds.ExtractionReports{},
+		&ds.ManageReports{},
+	)
 	if err != nil {
 		panic("cant migrate db")
 	}
+
 }

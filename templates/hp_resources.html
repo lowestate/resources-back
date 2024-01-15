@@ -7,24 +7,19 @@
 <body>
 
 <div class="container">
-    <h1 class="page-title">Доступные ресурсы</h1>
-    <div class="navigation-grid">
-        <div class="search-box">
-            <form action="" method="get">
-                <input type="text" name="title" placeholder="Поиск..." class="search-input"/>
-                <button type="submit" class="search-button">Искать</button>
-            </form>
-        </div>
-        <a href="/home/new_resource" class="new-link">
-            <span class="new-button">Добавить новый ресурс</span>
-        </a>
+    <h1 class="page-title">Доступные материалы</h1>
+    <div class="search-box">
+        <form action="" method="get">
+            <input type="text" name="search" placeholder="Поиск..." class="search-input"/>
+            <button type="submit" class="search-button">Искать</button>
+        </form>
     </div>
     <div class="content">
         <div class="resources">
             <div class="resource-grid">
                 {{ range .materials }}
                 <div class="resource-card">
-                    <img src="{{ .Image }}" alt="картинка" class="resource-image">
+                    <img src="data:image/jpg;base64, {{ .Image }}" alt="картинка" class="resource-image">
                     <h5 class="resource-title">{{ .ResourceName }}</h5>
                     <a href="home/{{ .ResourceName }}" class="resource-link">Отчет по добыче</a>
                 </div>

@@ -35,37 +35,14 @@
         text-align: center;
     }
 
-    .navigation-grid {
-        display: flex;
-        flex-direction: row;
-        justify-content: center;
-        grid-gap: 20px;
-    }
-
-    .new-link {
-        text-decoration: none;
-        margin-top: 15px;
-    }
-
-    .new-button {
-        font-size: 18px;
-        background-color: #2e8fd5;
-        color: #fff;
-        padding: 15px 20px;
-        border-radius: 5px;
-        margin-bottom: 20px;
-    }
-
     .search-box {
-        display: flex;
-        flex-direction: row;
         background-color: #ffffff; /* Белый фон поиска */
         border-radius: 5px;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        padding: 7px;
+        padding: 10px;
         width: 300px;
-        height: 35px;
-
+        height: 30px;
+        margin: 0 auto;
     }
 
     .search-input {
@@ -167,29 +144,4 @@
         padding: 7px 20px;
         border-radius: 5px;
         margin-bottom: 20px;
-    }
-
-    .param-title {
-        font-size: 20px;
-        background-color: #efab52;
-        width: 150px;
-        padding: 15px 10px;
-        border-radius: 5px;
-    }
-
-    .new-param-line {
-        display: flex;
-        flex-direction: row;
-        grid-gap: 10px;
-        margin-left: 30%;
-        margin-bottom: 10px;
-    }
-
-    .new-input {
-        font-size: 20px;
-        margin-top: 20px;
-        height: 50px;
-        width: 40%; /* Уменьшена ширина поля ввода */
-        border: none; /* Убрана граница поля ввода */
-        border-radius: 5px;
     }
