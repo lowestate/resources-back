@@ -85,13 +85,11 @@ func (a *Application) StartServer() {
 
 	clientMethods := a.r.Group("", a.WithAuthCheck(role.User))
 	{
-		//актуальное создание заявки + добавление в м-м
 		clientMethods.POST("/resources/:resource_name/add", a.addResourceToReport)
 
-		//актуальное обновление записей в м-м
-
-		clientMethods.POST("/reports/:report_id/delete", a.deleteReport)
+		//clientMethods.POST("/reports/:report_id/delete", a.deleteReport)
 		clientMethods.PUT("/reports/:report_id/add_data", a.addDataToReport)
+
 		clientMethods.DELETE("/manage_reports/delete_single", a.deleteSingleFromMM)
 		clientMethods.PUT("/manage_reports/add_plan", a.addPlanToMM)
 	}
@@ -101,6 +99,7 @@ func (a *Application) StartServer() {
 		moderMethods.PUT("/resources/:resource_name/edit", a.editResource)
 		moderMethods.POST("/resources/new", a.addResource)
 		moderMethods.DELETE("/resources/change_status/:resource_name", a.deleteResource)
+
 		moderMethods.GET("/ping", a.ping)
 		moderMethods.GET("/users/:uuid", a.getUser)
 	}
@@ -111,10 +110,12 @@ func (a *Application) StartServer() {
 		authorizedMethods.GET("/reports", a.getAllReports)
 		authorizedMethods.GET("/reports/:report_id", a.getDetailedReport)
 		authorizedMethods.GET("/reports/status/:status", a.getReportsByStatus)
+		authorizedMethods.PUT("/reports/change_status", a.changeStatus)
+
 		authorizedMethods.GET("/manage_reports/:report_id", a.getResourcesFromReport)
 		authorizedMethods.GET("/manage_reports/:report_id/extraction", a.getExtractionData)
 		authorizedMethods.GET("/manage_reports/async_processed", a.getAsyncProcessed)
-		authorizedMethods.PUT("/reports/change_status", a.changeStatus)
+
 	}
 
 	a.r.Run(":8000")
@@ -763,7 +764,7 @@ func (a *Application) deleteReport(c *gin.Context) {
 }
 
 func (a *Application) addDataToReport(c *gin.Context) {
-	req_id, err1 := strconv.Atoi(c.Param("title"))
+	req_id, err1 := strconv.Atoi(c.Param("report_id"))
 	var requestBody ds.AddDataToReport
 	if err1 != nil {
 		// ... handle error
