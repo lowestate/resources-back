@@ -82,17 +82,18 @@ func (a *Application) StartServer() {
 	a.r.GET("/resources/:resource_name", a.loadPage)
 
 	a.r.POST("/async/:report_ref/:resource_ref", a.asyncInsertFact)
+	/*
+		clientMethods := a.r.Group("", a.WithAuthCheck(role.User))
+		{
 
-	clientMethods := a.r.Group("", a.WithAuthCheck(role.User))
-	{
-		clientMethods.POST("/resources/:resource_name/add", a.addResourceToReport)
+			// clientMethods.POST("/resources/:resource_name/add", a.addResourceToReport)
 
-		//clientMethods.POST("/reports/:report_id/delete", a.deleteReport)
-		clientMethods.PUT("/reports/:report_id/add_data", a.addDataToReport)
+			//clientMethods.POST("/reports/:report_id/delete", a.deleteReport)
+			//clientMethods.PUT("/reports/:report_id/add_data", a.addDataToReport)
 
-		clientMethods.DELETE("/manage_reports/delete_single", a.deleteSingleFromMM)
-		clientMethods.PUT("/manage_reports/add_plan", a.addPlanToMM)
-	}
+			//clientMethods.DELETE("/manage_reports/delete_single", a.deleteSingleFromMM)
+
+		}*/
 
 	moderMethods := a.r.Group("", a.WithAuthCheck(role.Admin))
 	{
@@ -101,11 +102,17 @@ func (a *Application) StartServer() {
 		moderMethods.DELETE("/resources/change_status/:resource_name", a.deleteResource)
 
 		moderMethods.GET("/ping", a.ping)
-		moderMethods.GET("/users/:uuid", a.getUser)
+
 	}
 
 	authorizedMethods := a.r.Group("", a.WithAuthCheck(role.User, role.Admin))
 	{
+		// чтобы заявки мог добавлять и админ и юзер
+		authorizedMethods.POST("/resources/:resource_name/add", a.addResourceToReport)
+		authorizedMethods.PUT("/manage_reports/add_plan", a.addPlanToMM)
+		authorizedMethods.PUT("/reports/:report_id/add_data", a.addDataToReport)
+		authorizedMethods.DELETE("/manage_reports/delete_single", a.deleteSingleFromMM)
+
 		authorizedMethods.PUT("/reports/set_resources", a.setReportResources)
 		authorizedMethods.GET("/reports", a.getAllReports)
 		authorizedMethods.GET("/reports/:report_id", a.getDetailedReport)
@@ -114,7 +121,8 @@ func (a *Application) StartServer() {
 
 		authorizedMethods.GET("/manage_reports/:report_id", a.getResourcesFromReport)
 		authorizedMethods.GET("/manage_reports/:report_id/extraction", a.getExtractionData)
-		authorizedMethods.GET("/manage_reports/async_processed", a.getAsyncProcessed)
+		authorizedMethods.POST("/reports/async_processed", a.getAsyncProcessed)
+		authorizedMethods.GET("/users/:uuid", a.getUser)
 
 	}
 
@@ -639,9 +647,20 @@ func (a *Application) changeStatus(c *gin.Context) {
 		return
 	}
 
-	if !slices.Contains(ds.ReqStatuses, requestBody.Status) {
-		c.String(http.StatusBadRequest, "Неверный статус")
+	if !slices.Contains(ds.ReqStatuses, requestBody.Status) && !strings.Contains(requestBody.Status, "EXTRA") {
+		c.String(http.StatusBadRequest, "Неверный статус: ", requestBody.Status)
+		log.Println(requestBody.Status)
 		return
+	} else if strings.Contains(requestBody.Status, "EXTRA") {
+		startIndex := strings.Index(requestBody.Status, "=") + 1
+		endIndex := strings.Index(requestBody.Status, ")")
+
+		if startIndex != -1 && endIndex != -1 && startIndex < endIndex {
+			resultString := requestBody.Status[startIndex:endIndex]
+			requestBody.Status = resultString
+		} else {
+			fmt.Println("Статус корректный")
+		}
 	}
 
 	if userRole == role.User {
@@ -666,20 +685,15 @@ func (a *Application) changeStatus(c *gin.Context) {
 		}
 	} else {
 		if currRequest.ModeratorRef == userUUID {
-			if slices.Contains(ds.ReqStatuses[len(ds.ReqStatuses)-2:], requestBody.Status) {
-				err = a.repo.ChangeReportStatus(requestBody.ReportID, requestBody.Status)
+			err = a.repo.ChangeReportStatus(requestBody.ReportID, requestBody.Status)
 
-				if err != nil {
-					c.Error(err)
-					return
-				}
-
-				c.String(http.StatusCreated, "Текущий статус: ", requestBody.Status)
-				return
-			} else {
-				c.String(http.StatusForbidden, "Модератор не может установить статус ", requestBody.Status)
+			if err != nil {
+				c.Error(err)
 				return
 			}
+
+			c.String(http.StatusCreated, "Текущий статус: ", requestBody.Status)
+			return
 		} else {
 			c.String(http.StatusForbidden, "Модератор не является ответственным")
 			return

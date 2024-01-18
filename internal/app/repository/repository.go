@@ -280,7 +280,7 @@ func (r *Repository) GetAllRequests(userRole any, username, status, dateStart, d
 	} else if userRole == role.Admin && status == "" { // когда админу просто прогружаются заявки
 		log.Println("---------------- ЭТО АДМИН")
 		qry = qry.Where("status = ? AND moderator_ref = ?", ds.ReqStatuses[1], user.UUID)
-	} else if userRole == role.Admin && status != "" { // когда админ ищет по клиенту (клиент вместо статуса)
+	} else if userRole == role.Admin && status != "" && !slices.Contains(ds.ReqStatuses, status) { // когда админ ищет по клиенту (клиент вместо статуса)
 		err3 := r.db.Model(&ds.Users{}).Select("uuid").Where("username = ?", status).First(&user_search).Error
 		if err3 != nil {
 			return nil, 0, err3
@@ -547,6 +547,15 @@ func (r *Repository) GetReportByID(id uint, userUUID uuid.UUID, userRole any) (*
 	err := qry.Preload("Client").Preload("Moderator").First(request, "id = ?", id).Error
 	if err != nil {
 		return nil, err
+	}
+
+	if request == nil {
+		qry = qry.Where("client_ref = ?", userUUID)
+		err1 := qry.Preload("Client").Preload("Moderator").First(request, "id = ?", id).Error
+
+		if err1 != nil {
+			return nil, err1
+		}
 	}
 
 	return request, nil
