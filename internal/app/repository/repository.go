@@ -241,14 +241,14 @@ func (r *Repository) EditResource(resource_name string, editingResource ds.Resou
 		if err != nil {
 			return err
 		}
-		imageURL, err := r.uploadImageToMinio(editingResource.Image)
+		//imageURL, err := r.UploadImageToMinio(imageURL, editingResource.Image)
 		if err != nil {
 			return err
 		}
 
-		editingResource.Image = imageURL
+		//editingResource.Image = imageURL
 
-		log.Println("IMAGE REPLACED")
+		//log.Println("IMAGE REPLACED")
 	}
 
 	return r.db.Model(&ds.Resources{}).Where("resource_name = ?", resource_name).Updates(editingResource).Error
@@ -705,27 +705,31 @@ func (r *Repository) GetUserByName(name string) (*ds.Users, error) {
 //---------------------------------------------------------------------------
 //---------------------------------- MINIO ----------------------------------
 
-func (r *Repository) uploadImageToMinio(imagePath string) (string, error) {
-	// Получаем клиента Minio из настроек
+func (r *Repository) UploadImageToMinio(imagePath, resName string) (string, error) {
 	minioClient := mClient.NewMinioClient()
 
 	// Загрузка изображения в Minio
 	file, err := os.Open(imagePath)
 	if err != nil {
-		return "", err
+		return "!!!", err
 	}
 	defer file.Close()
 
-	// Генерация уникального имени объекта в Minio (например, используя UUID)
-	objectName := generateUniqueObjectName() + ".jpg"
+	// uuid - уникальное имя; parts - имя файла
+	//objectName := uuid.New().String() + ".jpg"
+	parts := strings.Split(imagePath, "/")
+	objectName := parts[len(parts)-1]
 
 	_, err = minioClient.PutObject(context.Background(), "pc-bucket", objectName, file, -1, minio.PutObjectOptions{})
 	if err != nil {
-		return "", err
+		return "!!!", err
 	}
 
 	// Возврат URL изображения в Minio
-	return fmt.Sprintf("http://%s/%s/%s", minioClient.EndpointURL().Host, "pc-bucket", objectName), nil
+	imgURL := fmt.Sprintf("http://%s/%s/%s", minioClient.EndpointURL().Host, "pc-bucket", objectName)
+	err = r.db.Model(&ds.Resources{}).Where("name = ?", resName).Update("image", imgURL).Error
+
+	return imgURL, nil
 }
 
 func (r *Repository) deleteImageFromMinio(imageURL string) error {

@@ -18,6 +18,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"log"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -82,25 +83,25 @@ func (a *Application) StartServer() {
 	a.r.GET("/resources/:resource_name", a.loadPage)
 
 	a.r.POST("/async/:report_ref/:resource_ref", a.asyncInsertFact)
-	/*
-		clientMethods := a.r.Group("", a.WithAuthCheck(role.User))
-		{
+	clientMethods := a.r.Group("", a.WithAuthCheck(role.User))
+	{
+		clientMethods.PUT("/reports/change_status_user", a.changeStatus)
+		clientMethods.PUT("/reports/:report_id/delete", a.changeStatus)
+		// clientMethods.POST("/resources/:resource_name/add", a.addResourceToReport)
 
-			// clientMethods.POST("/resources/:resource_name/add", a.addResourceToReport)
+		//clientMethods.POST("/reports/:report_id/delete", a.deleteReport)
+		//clientMethods.PUT("/reports/:report_id/add_data", a.addDataToReport)
 
-			//clientMethods.POST("/reports/:report_id/delete", a.deleteReport)
-			//clientMethods.PUT("/reports/:report_id/add_data", a.addDataToReport)
+		//clientMethods.DELETE("/manage_reports/delete_single", a.deleteSingleFromMM)
 
-			//clientMethods.DELETE("/manage_reports/delete_single", a.deleteSingleFromMM)
-
-		}*/
-
+	}
 	moderMethods := a.r.Group("", a.WithAuthCheck(role.Admin))
 	{
 		moderMethods.PUT("/resources/:resource_name/edit", a.editResource)
 		moderMethods.POST("/resources/new", a.addResource)
 		moderMethods.DELETE("/resources/change_status/:resource_name", a.deleteResource)
-
+		moderMethods.PUT("/reports/change_status_admin", a.changeStatus)
+		moderMethods.POST("/resources/upload_image", a.uploadImage)
 		moderMethods.GET("/ping", a.ping)
 
 	}
@@ -129,6 +130,34 @@ func (a *Application) StartServer() {
 	a.r.Run(":8000")
 
 	log.Println("Server is down")
+}
+
+func (a *Application) uploadImage(c *gin.Context) {
+	// Получение файла из запроса
+	file, err := c.FormFile("image")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Нет файла с картинкой"})
+		return
+	}
+	resName := c.PostForm("resName")
+
+	// Сохранение файла временно
+	tempFilePath := "C:/Users/Yan note/Desktop/temp/" + file.Filename
+	if err := c.SaveUploadedFile(file, tempFilePath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось сохранить картинку"})
+		return
+	}
+	defer os.Remove(tempFilePath) // Удаляем временный файл после использования
+
+	// Вызов репозиторной функции для загрузки изображения в Minio
+	imageURL, err := a.repo.UploadImageToMinio(tempFilePath, resName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не удалось загрузить картинку в minio"})
+		return
+	}
+
+	// Вернуть URL изображения в ответе
+	c.JSON(http.StatusOK, imageURL)
 }
 
 func (a *Application) asyncInsertFact(c *gin.Context) {
