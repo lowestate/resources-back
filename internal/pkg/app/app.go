@@ -86,7 +86,7 @@ func (a *Application) StartServer() {
 	clientMethods := a.r.Group("", a.WithAuthCheck(role.User))
 	{
 		clientMethods.PUT("/reports/change_status_user", a.changeStatus)
-		clientMethods.PUT("/reports/:report_id/delete", a.changeStatus)
+
 		// clientMethods.POST("/resources/:resource_name/add", a.addResourceToReport)
 
 		//clientMethods.POST("/reports/:report_id/delete", a.deleteReport)
@@ -119,6 +119,8 @@ func (a *Application) StartServer() {
 		authorizedMethods.GET("/reports/:report_id", a.getDetailedReport)
 		authorizedMethods.GET("/reports/status/:status", a.getReportsByStatus)
 		authorizedMethods.PUT("/reports/change_status", a.changeStatus)
+
+		authorizedMethods.DELETE("/reports/:report_id/delete", a.deleteReport)
 
 		authorizedMethods.GET("/manage_reports/:report_id", a.getResourcesFromReport)
 		authorizedMethods.GET("/manage_reports/:report_id/extraction", a.getExtractionData)
@@ -788,7 +790,7 @@ func (a *Application) getAsyncProcessed(c *gin.Context) { // нужно доба
 // @Success 200 {object} map[string]interface{}
 // @Router /home/delete_report/{title} [post]
 func (a *Application) deleteReport(c *gin.Context) {
-	req_id, err1 := strconv.Atoi(c.Param("req_id"))
+	req_id, err1 := strconv.Atoi(c.Param("report_id"))
 	if err1 != nil {
 		// ... handle error
 		panic(err1)
